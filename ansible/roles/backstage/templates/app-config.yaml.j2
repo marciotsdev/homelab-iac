@@ -21,6 +21,10 @@ backend:
     host: 0.0.0.0
   csp:
     connect-src: ["'self'", 'http:', 'https:']
+    # This deployment is plain HTTP — without this, the default helmet CSP
+    # upgrades every asset request to https:, which this server can't answer,
+    # leaving the frontend blank (ERR_SSL_PROTOCOL_ERROR on every script/css).
+    upgrade-insecure-requests: false
   cors:
     origin: "http://{{ hostvars['backstage'].ansible_host }}:{{ backstage_port }}"
     methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
