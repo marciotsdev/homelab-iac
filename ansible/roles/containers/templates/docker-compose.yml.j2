@@ -1,0 +1,11 @@
+services:
+{% for app in demo_apps %}
+  {{ app.name }}:
+    image: nginx:alpine
+    container_name: {{ app.name }}
+    restart: unless-stopped
+    ports:
+      - "{{ app.port }}:80"
+    volumes:
+      - {{ demo_apps_dir }}/{{ app.name }}:/usr/share/nginx/html:ro
+{% endfor %}

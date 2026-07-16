@@ -1,0 +1,19 @@
+// Best-effort: register the homelab Gitea instance as a known Gitea Server so the
+// gitea-plugin can post build statuses back. Wrapped defensively — if the plugin's
+// API differs across versions this must not break Jenkins startup.
+try {
+  def serversClass = Class.forName('org.jenkinsci.plugin.gitea.servers.GiteaServers')
+  def serverClass = Class.forName('org.jenkinsci.plugin.gitea.servers.GiteaServer')
+  def servers = serversClass.get()
+
+  def already = servers.getServers().find { it.getServerUrl() == "http://{{ gitea_domain }}:{{ gitea_port }}" }
+  if (already == null) {
+    def server = serverClass.newInstance("homelab-gitea", "http://{{ gitea_domain }}:{{ gitea_port }}")
+    server.setManagePermissions(false)
+    servers.setServers([server])
+    servers.save()
+    println "gitea-server.groovy: registered homelab-gitea server"
+  }
+} catch (Throwable t) {
+  println "gitea-server.groovy: skipped (plugin API mismatch): ${t}"
+}

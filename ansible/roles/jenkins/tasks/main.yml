@@ -1,0 +1,290 @@
+---
+- name: Install OpenJDK 21
+  apt:
+    name: openjdk-21-jdk-headless
+    state: present
+  become: true
+
+- name: Remove older OpenJDK 17 if present (Jenkins requires Java 21+)
+  apt:
+    name: openjdk-17-jdk-headless
+    state: absent
+  become: true
+
+- name: Remove any previously-corrupted keyring file
+  file:
+    path: /usr/share/keyrings/jenkins-keyring.asc
+    state: absent
+  become: true
+
+- name: Download Jenkins apt key
+  get_url:
+    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+    dest: /usr/share/keyrings/jenkins-keyring.asc
+    mode: "0644"
+    force: true
+  become: true
+
+- name: Add Jenkins apt repo
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+    filename: jenkins
+    state: present
+  become: true
+
+- name: Install jenkins package
+  apt:
+    name: jenkins
+    state: present
+    update_cache: true
+  become: true
+  register: jenkins_install
+
+- name: Stop jenkins before seeding init scripts
+  systemd:
+    name: jenkins
+    state: stopped
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ jenkins_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate/read jenkins admin password (control node, idempotent)
+  set_fact:
+    jenkins_admin_password: "{{ lookup('password', jenkins_secrets_dir + '/jenkins_admin_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Ensure jenkins home and init.groovy.d exist
+  file:
+    path: "{{ jenkins_home }}/init.groovy.d"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0750"
+  become: true
+
+- name: Template basic-security groovy init script
+  template:
+    src: basic-security.groovy.j2
+    dest: "{{ jenkins_home }}/init.groovy.d/01-basic-security.groovy"
+    owner: jenkins
+    group: jenkins
+    mode: "0640"
+  become: true
+  no_log: true
+
+- name: Disable setup wizard (JVM flag)
+  lineinfile:
+    path: /etc/default/jenkins
+    regexp: '^JAVA_ARGS='
+    line: 'JAVA_ARGS="-Djava.awt.headless=true -Djenkins.install.runSetupWizard=false"'
+  become: true
+
+- name: Get installed jenkins package version
+  command: dpkg-query -W -f='${Version}' jenkins
+  become: true
+  register: jenkins_pkg_version
+  changed_when: false
+
+- name: Mark install state files to skip setup wizard
+  copy:
+    content: "{{ jenkins_pkg_version.stdout.split('-')[0] }}"
+    dest: "{{ item }}"
+    owner: jenkins
+    group: jenkins
+    mode: "0644"
+  loop:
+    - "{{ jenkins_home }}/jenkins.install.UpgradeWizard.state"
+    - "{{ jenkins_home }}/jenkins.install.InstallUtil.lastExecVersion"
+  become: true
+
+- name: Start jenkins
+  systemd:
+    name: jenkins
+    state: started
+    enabled: true
+  become: true
+
+- name: Wait for jenkins HTTP to respond
+  uri:
+    url: "{{ jenkins_url }}/login"
+    status_code: [200, 403]
+  register: jenkins_ready
+  until: jenkins_ready.status in [200, 403]
+  retries: 30
+  delay: 5
+
+- name: Get CSRF crumb
+  uri:
+    url: "{{ jenkins_url }}/crumbIssuer/api/json"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    return_content: true
+  register: crumb_response
+  no_log: true
+
+- name: Install jenkins plugins
+  uri:
+    url: "{{ jenkins_url }}/pluginManager/installNecessaryPlugins"
+    method: POST
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    headers:
+      Jenkins-Crumb: "{{ crumb_response.json.crumb }}"
+      Cookie: "{{ crumb_response.cookies.items() | map('join', '=') | join('; ') }}"
+      Content-Type: text/xml
+    body_format: raw
+    body: "<jenkins>{% for p in jenkins_plugins %}<install plugin=\"{{ p }}@latest\" />{% endfor %}</jenkins>"
+    status_code: [200, 302]
+  no_log: true
+
+- name: Wait for plugin installation to finish
+  uri:
+    url: "{{ jenkins_url }}/updateCenter/api/json?depth=1"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+  register: update_center
+  until: update_center.json.jobs is not defined or (update_center.json.jobs | selectattr('status.type', 'defined') | selectattr('status.type', 'equalto', 'Running') | list | length) == 0
+  retries: 40
+  delay: 5
+  no_log: true
+
+- name: Template gitea-server groovy init script (best-effort, post-plugin-install)
+  template:
+    src: gitea-server.groovy.j2
+    dest: "{{ jenkins_home }}/init.groovy.d/02-gitea-server.groovy"
+    owner: jenkins
+    group: jenkins
+    mode: "0640"
+  become: true
+
+- name: Restart jenkins to load plugins and run gitea-server script
+  systemd:
+    name: jenkins
+    state: restarted
+  become: true
+
+- name: Wait for jenkins HTTP to respond after restart
+  uri:
+    url: "{{ jenkins_url }}/login"
+    status_code: [200, 403]
+  register: jenkins_ready2
+  until: jenkins_ready2.status in [200, 403]
+  retries: 40
+  delay: 5
+
+- name: Refresh CSRF crumb after restart
+  uri:
+    url: "{{ jenkins_url }}/crumbIssuer/api/json"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+  register: crumb_response2
+  no_log: true
+
+- name: Read gitea automation token
+  set_fact:
+    gitea_admin_token: "{{ lookup('file', jenkins_secrets_dir + '/gitea_admin_token') }}"
+  no_log: true
+
+- name: Check if gitea-token credential already exists
+  uri:
+    url: "{{ jenkins_url }}/credentials/store/system/domain/_/credential/gitea-token/api/json"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: gitea_cred_check
+  no_log: true
+
+- name: Create gitea-token credential
+  uri:
+    url: "{{ jenkins_url }}/credentials/store/system/domain/_/createCredentials"
+    method: POST
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    headers:
+      Jenkins-Crumb: "{{ crumb_response2.json.crumb }}"
+      Cookie: "{{ crumb_response2.cookies.items() | map('join', '=') | join('; ') }}"
+    body_format: form-urlencoded
+    body:
+      json: "{{ {'': '0', 'credentials': {'scope': 'GLOBAL', 'id': 'gitea-token', 'secret': gitea_admin_token, 'description': 'Gitea automation token', 'stapler-class': 'org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl', '$class': 'org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl'} } | to_json }}"
+    status_code: [200, 302]
+  no_log: true
+  when: gitea_cred_check.status == 404
+
+- name: Check for AWX API token (control node)
+  stat:
+    path: "{{ jenkins_secrets_dir }}/awx_api_token"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: awx_token_file_check
+
+- name: Read AWX API token
+  set_fact:
+    awx_api_token_for_jenkins: "{{ lookup('file', jenkins_secrets_dir + '/awx_api_token') }}"
+  no_log: true
+  when: awx_token_file_check.stat.exists
+
+- name: Check if awx-api-token credential already exists
+  uri:
+    url: "{{ jenkins_url }}/credentials/store/system/domain/_/credential/awx-api-token/api/json"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: awx_cred_check
+  no_log: true
+  when: awx_token_file_check.stat.exists
+
+- name: Create awx-api-token credential
+  uri:
+    url: "{{ jenkins_url }}/credentials/store/system/domain/_/createCredentials"
+    method: POST
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    headers:
+      Jenkins-Crumb: "{{ crumb_response2.json.crumb }}"
+      Cookie: "{{ crumb_response2.cookies.items() | map('join', '=') | join('; ') }}"
+    body_format: form-urlencoded
+    body:
+      json: "{{ {'': '0', 'credentials': {'scope': 'GLOBAL', 'id': 'awx-api-token', 'secret': awx_api_token_for_jenkins, 'description': 'AWX automation token', 'stapler-class': 'org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl', '$class': 'org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl'} } | to_json }}"
+    status_code: [200, 302]
+  no_log: true
+  when: awx_token_file_check.stat.exists and awx_cred_check.status == 404
+
+- name: Check if sample-app job already exists
+  uri:
+    url: "{{ jenkins_url }}/job/{{ gitea_demo_repo }}/api/json"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: job_check
+
+- name: Create sample-app pipeline job
+  uri:
+    url: "{{ jenkins_url }}/createItem?name={{ gitea_demo_repo }}"
+    method: POST
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ jenkins_admin_password }}"
+    force_basic_auth: true
+    headers:
+      Jenkins-Crumb: "{{ crumb_response2.json.crumb }}"
+      Cookie: "{{ crumb_response2.cookies.items() | map('join', '=') | join('; ') }}"
+      Content-Type: application/xml
+    body: "{{ lookup('template', 'job-config.xml.j2') }}"
+    status_code: [200]
+  when: job_check.status == 404

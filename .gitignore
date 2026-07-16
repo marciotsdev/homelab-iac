@@ -1,0 +1,18 @@
+# Secrets — never commit
+secrets/
+
+# Terraform local state and artifacts
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/tfplan.out
+terraform/*.tfplan
+terraform/crash.log
+
+# Ansible
+*.retry
+
+# Environment-specific config (real IPs/paths) — commit the .example versions instead
+ansible/inventory/hosts.ini
+ansible/group_vars/all/hosts.yml
+terraform/terraform.tfvars

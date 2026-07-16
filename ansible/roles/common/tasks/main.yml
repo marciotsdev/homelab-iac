@@ -1,0 +1,43 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install base packages
+  apt:
+    name:
+      - qemu-guest-agent
+      - curl
+      - git
+      - vim
+      - ca-certificates
+      - gnupg
+      - unzip
+      - htop
+      - python3-pip
+      - acl
+    state: present
+  become: true
+
+- name: Ensure qemu-guest-agent is enabled and running
+  systemd:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+  become: true
+
+- name: Set timezone
+  timezone:
+    name: America/Sao_Paulo
+  become: true
+
+- name: Distribute /etc/hosts with homelab entries
+  template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: "0644"
+  become: true

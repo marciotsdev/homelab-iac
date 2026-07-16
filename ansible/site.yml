@@ -1,0 +1,36 @@
+---
+- name: Common baseline on all homelab VMs
+  hosts: homelab
+  gather_facts: true
+  roles:
+    - common
+
+- name: Gitea
+  hosts: gitea
+  gather_facts: true
+  roles:
+    - gitea
+
+- name: Jenkins
+  hosts: jenkins
+  gather_facts: true
+  roles:
+    - jenkins
+
+- name: Containers
+  hosts: containers
+  gather_facts: true
+  roles:
+    - containers
+
+- name: AWX
+  hosts: awx
+  gather_facts: true
+  roles:
+    - awx
+
+- name: Backstage
+  hosts: backstage
+  gather_facts: true
+  roles:
+    - backstage

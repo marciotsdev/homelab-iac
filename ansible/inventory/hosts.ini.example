@@ -1,0 +1,13 @@
+[homelab]
+awx ansible_host=192.168.1.50
+jenkins ansible_host=192.168.1.51
+gitea ansible_host=192.168.1.52
+containers ansible_host=192.168.1.53
+client ansible_host=192.168.1.54
+backstage ansible_host=192.168.1.55
+
+[homelab:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/homelab_ed25519
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args=-o StrictHostKeyChecking=accept-new

@@ -1,0 +1,16 @@
+domain_suffix: homelab
+
+gitea_port: 3000
+gitea_ssh_port: 2222
+gitea_domain: "gitea.{{ domain_suffix }}"
+gitea_admin_user: gitadmin
+gitea_demo_repo: sample-app
+jenkins_port: 8080
+awx_port: 30080
+backstage_port: 7007
+awx_job_template_id: 9
+
+# SSH key used both to connect to the VMs and, on the awx role, to build the
+# AWX machine credential. `~` is expanded against whichever user is running
+# the play (locally and over SSH), so this stays portable across machines.
+ssh_private_key_path: "~/.ssh/homelab_ed25519"

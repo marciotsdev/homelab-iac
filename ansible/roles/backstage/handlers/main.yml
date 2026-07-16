@@ -1,0 +1,29 @@
+---
+- name: rebuild backstage backend
+  command: yarn build:backend
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  notify: extract backstage bundle
+
+- name: extract backstage bundle
+  shell: |
+    set -e
+    rm -rf {{ backstage_run_dir }}
+    mkdir -p {{ backstage_run_dir }}
+    cd {{ backstage_run_dir }}
+    tar xzf {{ backstage_app_dir }}/packages/backend/dist/skeleton.tar.gz
+    tar xzf {{ backstage_app_dir }}/packages/backend/dist/bundle.tar.gz
+  become: true
+  become_user: "{{ backstage_user }}"
+  notify: restart backstage service
+
+- name: restart backstage service
+  systemd:
+    name: backstage
+    state: restarted
+    daemon_reload: true
+  become: true

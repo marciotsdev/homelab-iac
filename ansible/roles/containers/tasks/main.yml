@@ -1,0 +1,58 @@
+---
+- name: Install docker
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure docker is enabled and running
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: true
+  become: true
+
+- name: Create demo app content directories
+  file:
+    path: "{{ demo_apps_dir }}/{{ item.name }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ demo_apps }}"
+  become: true
+
+- name: Check if app1 has already received a CI/CD deploy
+  stat:
+    path: "{{ demo_apps_dir }}/app1/.deployed"
+  register: app1_deployed
+
+- name: Seed placeholder index.html for each app (do not overwrite app1 once deployed by CI/CD)
+  template:
+    src: index.html.j2
+    dest: "{{ demo_apps_dir }}/{{ item.name }}/index.html"
+    mode: "0644"
+    force: "{{ false if (item.name == 'app1' and app1_deployed.stat.exists) else true }}"
+  loop: "{{ demo_apps }}"
+  become: true
+
+- name: Template docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ demo_apps_dir }}/docker-compose.yml"
+    mode: "0644"
+  become: true
+
+- name: Start demo containers
+  command: docker compose -f {{ demo_apps_dir }}/docker-compose.yml up -d
+  become: true
+  register: compose_up
+  changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr"

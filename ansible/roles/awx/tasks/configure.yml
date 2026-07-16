@@ -1,0 +1,250 @@
+---
+- name: Check for existing AWX API token (control node)
+  stat:
+    path: "{{ awx_secrets_dir }}/awx_api_token"
+  delegate_to: localhost
+  become: false
+  register: awx_token_file
+
+- name: Create AWX API token
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/tokens/"
+    method: POST
+    url_username: "{{ awx_admin_user }}"
+    url_password: "{{ awx_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      description: "jenkins-backstage-automation"
+      scope: write
+    status_code: [201]
+  register: awx_token_create
+  no_log: true
+  when: not awx_token_file.stat.exists
+
+- name: Save AWX API token locally
+  copy:
+    content: "{{ awx_token_create.json.token }}"
+    dest: "{{ awx_secrets_dir }}/awx_api_token"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not awx_token_file.stat.exists
+
+- name: Read AWX API token
+  set_fact:
+    awx_api_token: "{{ lookup('file', awx_secrets_dir + '/awx_api_token') }}"
+  no_log: true
+
+- name: Look up Machine credential type id
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/credential_types/?name=Machine"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_cred_type
+
+- name: Look up default organization id
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/organizations/?name=Default"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_default_org
+
+- name: Set org/cred-type facts
+  set_fact:
+    awx_org_id: "{{ awx_default_org.json.results[0].id }}"
+    awx_machine_cred_type_id: "{{ awx_cred_type.json.results[0].id }}"
+
+- name: Read homelab SSH private key
+  slurp:
+    src: "{{ ssh_private_key_path }}"
+  delegate_to: localhost
+  become: false
+  register: awx_ssh_key_b64
+  no_log: true
+
+- name: Check if machine credential exists
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/credentials/?name=homelab-ssh-key"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_existing_cred
+
+- name: Create machine credential
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/credentials/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    body_format: json
+    body:
+      name: homelab-ssh-key
+      credential_type: "{{ awx_machine_cred_type_id }}"
+      organization: "{{ awx_org_id }}"
+      inputs:
+        username: ubuntu
+        ssh_key_data: "{{ awx_ssh_key_b64.content | b64decode }}"
+    status_code: [201]
+  register: awx_cred_create
+  no_log: true
+  when: awx_existing_cred.json.count == 0
+
+- name: Set machine credential id fact
+  set_fact:
+    awx_machine_cred_id: "{{ awx_existing_cred.json.results[0].id if awx_existing_cred.json.count > 0 else awx_cred_create.json.id }}"
+
+- name: Check if project exists
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/projects/?name=homelab-sample-app"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_existing_project
+
+- name: Create project
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/projects/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    body_format: json
+    body:
+      name: homelab-sample-app
+      organization: "{{ awx_org_id }}"
+      scm_type: git
+      scm_url: "http://{{ hostvars['gitea'].ansible_host }}:{{ gitea_port }}/{{ gitea_admin_user }}/{{ gitea_demo_repo }}.git"
+      scm_branch: main
+      scm_update_on_launch: true
+    status_code: [201]
+  register: awx_project_create
+  when: awx_existing_project.json.count == 0
+
+- name: Set project id fact
+  set_fact:
+    awx_project_id: "{{ awx_existing_project.json.results[0].id if awx_existing_project.json.count > 0 else awx_project_create.json.id }}"
+
+- name: Trigger a fresh project sync
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/projects/{{ awx_project_id }}/update/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    status_code: [202]
+  register: awx_project_update_trigger
+
+- name: Wait for project sync to finish
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/project_updates/{{ awx_project_update_trigger.json.id }}/"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_project_status
+  until: awx_project_status.json.status in ['successful', 'failed', 'canceled', 'error']
+  retries: 30
+  delay: 5
+
+- name: Fail with sync error details if project sync did not succeed
+  fail:
+    msg: "Project sync failed: {{ awx_project_status.json.result_traceback | default('no traceback') }}"
+  when: awx_project_status.json.status != 'successful'
+
+- name: Check if inventory exists
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/inventories/?name=homelab"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_existing_inv
+
+- name: Create inventory
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/inventories/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    body_format: json
+    body:
+      name: homelab
+      organization: "{{ awx_org_id }}"
+    status_code: [201]
+  register: awx_inv_create
+  when: awx_existing_inv.json.count == 0
+
+- name: Set inventory id fact
+  set_fact:
+    awx_inventory_id: "{{ awx_existing_inv.json.results[0].id if awx_existing_inv.json.count > 0 else awx_inv_create.json.id }}"
+
+- name: Check if containers host exists in inventory
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/inventories/{{ awx_inventory_id }}/hosts/?name=containers"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_existing_host
+
+- name: Add containers host to inventory
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/inventories/{{ awx_inventory_id }}/hosts/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    body_format: json
+    body:
+      name: containers
+      variables: "ansible_host: {{ hostvars['containers'].ansible_host }}\nansible_user: ubuntu\n"
+    status_code: [201]
+  when: awx_existing_host.json.count == 0
+
+- name: Check if job template exists
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/job_templates/?name=sample-app-deploy"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_existing_jt
+
+- name: Create job template
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/job_templates/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    body_format: json
+    body:
+      name: sample-app-deploy
+      job_type: run
+      inventory: "{{ awx_inventory_id }}"
+      project: "{{ awx_project_id }}"
+      playbook: deploy-playbook.yml
+      ask_variables_on_launch: false
+    status_code: [201]
+  register: awx_jt_create
+  when: awx_existing_jt.json.count == 0
+
+- name: Set job template id fact
+  set_fact:
+    awx_job_template_actual_id: "{{ awx_existing_jt.json.results[0].id if awx_existing_jt.json.count > 0 else awx_jt_create.json.id }}"
+
+- name: Check if credential already associated with job template
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/job_templates/{{ awx_job_template_actual_id }}/credentials/"
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+  register: awx_jt_creds
+
+- name: Associate machine credential with job template
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/job_templates/{{ awx_job_template_actual_id }}/credentials/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ awx_api_token }}"
+    body_format: json
+    body: "{{ {'id': awx_machine_cred_id | int} }}"
+
+    status_code: [204]
+  when: awx_machine_cred_id | int not in (awx_jt_creds.json.results | map(attribute='id') | list)
+
+- name: Persist real job template id into group_vars (control node)
+  lineinfile:
+    path: "{{ playbook_dir }}/group_vars/all.yml"
+    regexp: '^awx_job_template_id:'
+    line: "awx_job_template_id: {{ awx_job_template_actual_id }}"
+  delegate_to: localhost
+  become: false
+  run_once: true

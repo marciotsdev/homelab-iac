@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>demo-app1 — homelab</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; height: 100vh; align-items: center; justify-content: center; }
+    .card { text-align: center; padding: 2rem 3rem; border-radius: 12px; background: #1e293b; }
+    h1 { color: #38bdf8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>demo-app1</h1>
+    <p>Deployado via Gitea &rarr; Jenkins &rarr; AWX</p>
+    <p><small>{{ gitea_demo_repo }} @ {{ gitea_domain }}</small></p>
+  </div>
+</body>
+</html>

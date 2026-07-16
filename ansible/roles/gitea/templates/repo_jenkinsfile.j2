@@ -1,0 +1,35 @@
+pipeline {
+  agent any
+
+  environment {
+    AWX_HOST = 'http://{{ hostvars["awx"].ansible_host }}:{{ awx_port }}'
+    AWX_JOB_TEMPLATE_ID = '{{ awx_job_template_id | default("1") }}'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Build') {
+      steps {
+        echo 'Building sample-app (demo stage — no real compilation needed).'
+      }
+    }
+
+    stage('Trigger AWX deploy') {
+      steps {
+        withCredentials([string(credentialsId: 'awx-api-token', variable: 'AWX_TOKEN')]) {
+          sh '''
+            curl -sk -X POST \
+              -H "Authorization: Bearer $AWX_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$AWX_HOST/api/v2/job_templates/$AWX_JOB_TEMPLATE_ID/launch/"
+          '''
+        }
+      }
+    }
+  }
+}

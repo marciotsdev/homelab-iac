@@ -1,0 +1,7 @@
+homelab_hosts:
+  awx: 192.168.1.50
+  jenkins: 192.168.1.51
+  gitea: 192.168.1.52
+  containers: 192.168.1.53
+  client: 192.168.1.54
+  backstage: 192.168.1.55

@@ -1,0 +1,47 @@
+gateway             = "192.168.1.1"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+
+vms = {
+  awx = {
+    vm_id  = 2001
+    ip     = "192.168.1.50/24"
+    cores  = 4
+    memory = 10240
+    disk   = 60
+  }
+  jenkins = {
+    vm_id  = 2002
+    ip     = "192.168.1.51/24"
+    cores  = 2
+    memory = 4096
+    disk   = 40
+  }
+  gitea = {
+    vm_id  = 2003
+    ip     = "192.168.1.52/24"
+    cores  = 2
+    memory = 2048
+    disk   = 20
+  }
+  containers = {
+    vm_id  = 2004
+    ip     = "192.168.1.53/24"
+    cores  = 2
+    memory = 4096
+    disk   = 40
+  }
+  client = {
+    vm_id  = 2005
+    ip     = "192.168.1.54/24"
+    cores  = 2
+    memory = 2048
+    disk   = 20
+  }
+  backstage = {
+    vm_id  = 2006
+    ip     = "192.168.1.55/24"
+    cores  = 2
+    memory = 4096
+    disk   = 30
+  }
+}

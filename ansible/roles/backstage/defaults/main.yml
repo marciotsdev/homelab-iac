@@ -1,0 +1,6 @@
+backstage_app_dir: /opt/backstage
+backstage_run_dir: /opt/backstage/.run
+backstage_user: backstage
+backstage_secrets_dir: "{{ playbook_dir }}/../secrets"
+node_major: "22"
+jenkins_admin_user: admin

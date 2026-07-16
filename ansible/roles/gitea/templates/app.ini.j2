@@ -1,0 +1,31 @@
+APP_NAME = Homelab Gitea
+RUN_USER = {{ gitea_user }}
+RUN_MODE = prod
+
+[server]
+DOMAIN           = {{ gitea_domain }}
+HTTP_ADDR        = 0.0.0.0
+HTTP_PORT        = {{ gitea_http_port }}
+ROOT_URL         = http://{{ gitea_domain }}:{{ gitea_http_port }}/
+SSH_DOMAIN       = {{ gitea_domain }}
+SSH_PORT         = {{ gitea_ssh_port }}
+START_SSH_SERVER = true
+DISABLE_SSH      = false
+
+[database]
+DB_TYPE = sqlite3
+PATH    = {{ gitea_home }}/data/gitea.db
+
+[repository]
+ROOT = {{ gitea_home }}/data/gitea-repositories
+
+[security]
+INSTALL_LOCK = true
+
+[service]
+DISABLE_REGISTRATION = true
+REQUIRE_SIGNIN_VIEW  = false
+
+[log]
+MODE  = console
+LEVEL = info

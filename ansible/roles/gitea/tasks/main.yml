@@ -1,0 +1,208 @@
+---
+- name: Ensure gitea system group
+  group:
+    name: "{{ gitea_user }}"
+    system: true
+  become: true
+
+- name: Ensure gitea system user
+  user:
+    name: "{{ gitea_user }}"
+    group: "{{ gitea_user }}"
+    home: "{{ gitea_home }}"
+    shell: /bin/bash
+    system: true
+    create_home: true
+  become: true
+
+- name: Create gitea directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gitea_user }}"
+    group: "{{ gitea_user }}"
+    mode: "0750"
+  loop:
+    - "{{ gitea_home }}/custom"
+    - "{{ gitea_home }}/data"
+    - "{{ gitea_home }}/log"
+    - "{{ gitea_config_dir }}"
+  become: true
+
+- name: Download gitea binary
+  get_url:
+    url: "https://dl.gitea.com/gitea/{{ gitea_version }}/gitea-{{ gitea_version }}-linux-amd64"
+    dest: /usr/local/bin/gitea
+    mode: "0755"
+    force: true
+  become: true
+  notify: restart gitea
+
+- name: Template app.ini
+  template:
+    src: app.ini.j2
+    dest: "{{ gitea_config_dir }}/app.ini"
+    owner: "{{ gitea_user }}"
+    group: "{{ gitea_user }}"
+    mode: "0640"
+  become: true
+  notify: restart gitea
+
+- name: Template gitea systemd unit
+  template:
+    src: gitea.service.j2
+    dest: /etc/systemd/system/gitea.service
+    mode: "0644"
+  become: true
+  notify: restart gitea
+
+- name: Flush handlers (apply binary/config changes now)
+  meta: flush_handlers
+
+- name: Enable and start gitea
+  systemd:
+    name: gitea
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Wait for gitea HTTP to respond
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ gitea_http_port }}"
+    timeout: 60
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ gitea_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate/read admin password (control node, idempotent)
+  set_fact:
+    gitea_admin_password: "{{ lookup('password', gitea_secrets_dir + '/gitea_admin_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Check if admin user already exists
+  command: >
+    /usr/local/bin/gitea admin user list --config {{ gitea_config_dir }}/app.ini
+  become: true
+  become_user: "{{ gitea_user }}"
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_home }}"
+  register: gitea_user_list
+  changed_when: false
+
+- name: Create gitea admin user
+  command: >
+    /usr/local/bin/gitea admin user create
+    --config {{ gitea_config_dir }}/app.ini
+    --username {{ gitea_admin_user }}
+    --password {{ gitea_admin_password }}
+    --email {{ gitea_admin_email }}
+    --admin
+    --must-change-password=false
+  become: true
+  become_user: "{{ gitea_user }}"
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_home }}"
+  no_log: true
+  when: gitea_admin_user not in gitea_user_list.stdout
+
+- name: Check for existing automation access token (local)
+  stat:
+    path: "{{ gitea_secrets_dir }}/gitea_admin_token"
+  delegate_to: localhost
+  become: false
+  register: gitea_token_file
+
+- name: List existing tokens for admin user
+  uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/api/v1/users/{{ gitea_admin_user }}/tokens"
+    method: GET
+    url_username: "{{ gitea_admin_user }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    status_code: [200]
+  register: existing_tokens
+  no_log: true
+  when: not gitea_token_file.stat.exists
+
+- name: Remove stale automation token(s) server-side
+  uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/api/v1/users/{{ gitea_admin_user }}/tokens/{{ item.id }}"
+    method: DELETE
+    url_username: "{{ gitea_admin_user }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    status_code: [204]
+  loop: "{{ existing_tokens.json | default([]) | selectattr('name', 'equalto', 'automation') | list }}"
+  no_log: true
+  when: not gitea_token_file.stat.exists
+
+- name: Generate automation access token
+  uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/api/v1/users/{{ gitea_admin_user }}/tokens"
+    method: POST
+    url_username: "{{ gitea_admin_user }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: automation
+      scopes: ["all"]
+    status_code: [201]
+  register: gitea_token_result
+  no_log: true
+  when: not gitea_token_file.stat.exists
+
+- name: Save automation access token locally
+  copy:
+    content: "{{ gitea_token_result.json.sha1 }}"
+    dest: "{{ gitea_secrets_dir }}/gitea_admin_token"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not gitea_token_file.stat.exists
+
+- name: Read admin token for API calls
+  set_fact:
+    gitea_admin_token: "{{ lookup('file', gitea_secrets_dir + '/gitea_admin_token') }}"
+  no_log: true
+
+- name: Create demo repo
+  uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/api/v1/user/repos"
+    method: POST
+    headers:
+      Authorization: "token {{ gitea_admin_token }}"
+    body_format: json
+    body:
+      name: "{{ gitea_demo_repo }}"
+      description: "Homelab demo app — Gitea -> Jenkins -> AWX -> containers"
+      private: false
+      auto_init: true
+      default_branch: main
+    status_code: [201, 409]
+  no_log: true
+
+- name: Seed demo repo files
+  include_tasks: seed_repo_file.yml
+  loop:
+    - path: README.md
+      template: repo_readme.md.j2
+    - path: Jenkinsfile
+      template: repo_jenkinsfile.j2
+    - path: deploy-playbook.yml
+      template: repo_deploy_playbook.yml.j2
+    - path: catalog-info.yaml
+      template: repo_catalog_info.yaml.j2
+    - path: index.html
+      template: repo_index.html.j2
+  loop_control:
+    loop_var: seed_item

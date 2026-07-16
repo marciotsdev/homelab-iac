@@ -1,0 +1,114 @@
+---
+- name: Install k3s
+  shell: curl -sfL https://get.k3s.io | sh -
+  args:
+    creates: /usr/local/bin/k3s
+  become: true
+
+- name: Wait for k3s node to be Ready
+  command: k3s kubectl wait --for=condition=Ready node --all --timeout=180s
+  become: true
+  changed_when: false
+
+- name: Ensure hostPath directories for AWX persistent volumes
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /data/postgres-15
+    - /data/projects
+  become: true
+
+- name: Make projects hostPath writable by the AWX task pod (arbitrary non-root UID)
+  file:
+    path: /data/projects
+    state: directory
+    mode: "0777"
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ awx_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate/read awx admin password (control node, idempotent)
+  set_fact:
+    awx_admin_password: "{{ lookup('password', awx_secrets_dir + '/awx_admin_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Generate/read awx postgres password (control node, idempotent)
+  set_fact:
+    awx_postgres_password: "{{ lookup('password', awx_secrets_dir + '/awx_postgres_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Ensure manifest directories exist
+  file:
+    path: "{{ awx_manifests_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - operator
+    - base
+  become: true
+
+- name: Template operator kustomization
+  template:
+    src: operator-kustomization.yaml.j2
+    dest: "{{ awx_manifests_dir }}/operator/kustomization.yaml"
+    mode: "0644"
+  become: true
+
+- name: Apply awx-operator
+  command: k3s kubectl apply -k {{ awx_manifests_dir }}/operator
+  become: true
+  register: apply_operator
+  changed_when: "'unchanged' not in apply_operator.stdout"
+
+- name: Wait for awx-operator-controller-manager deployment to exist
+  command: k3s kubectl -n {{ awx_namespace }} get deployment awx-operator-controller-manager
+  become: true
+  register: operator_deploy_check
+  until: operator_deploy_check.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Wait for awx-operator to be ready
+  command: k3s kubectl -n {{ awx_namespace }} rollout status deployment/awx-operator-controller-manager --timeout=300s
+  become: true
+  changed_when: false
+
+- name: Template base manifests (postgres/pvc/awx CR)
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ awx_manifests_dir }}/base/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: base-kustomization.yaml.j2, dest: kustomization.yaml }
+    - { src: pv.yaml.j2, dest: pv.yaml }
+    - { src: pvc.yaml.j2, dest: pvc.yaml }
+    - { src: awx.yaml.j2, dest: awx.yaml }
+  become: true
+
+- name: Apply AWX instance
+  command: k3s kubectl apply -k {{ awx_manifests_dir }}/base
+  become: true
+  register: apply_base
+  changed_when: "'unchanged' not in apply_base.stdout"
+
+- name: Wait for AWX web to respond (first boot can take 10-15 minutes)
+  uri:
+    url: "http://127.0.0.1:{{ awx_port }}/api/v2/ping/"
+    status_code: [200]
+  register: awx_ready
+  until: awx_ready.status == 200
+  retries: 90
+  delay: 15
+
+- name: Configure AWX (credential, project, inventory, job template)
+  include_tasks: configure.yml

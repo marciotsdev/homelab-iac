@@ -1,0 +1,9 @@
+# sample-app
+
+Demo app do homelab. Push nesse repo dispara: Gitea webhook -> Jenkins pipeline -> AWX Job Template -> deploy em `containers.{{ domain_suffix }}` (container `demo-app1`).
+
+Arquivos:
+- `Jenkinsfile` — pipeline do Jenkins.
+- `deploy-playbook.yml` — playbook Ansible executado pelo AWX Job Template `deploy-demo-app`.
+- `index.html` — conteúdo servido pelo container `demo-app1`.
+- `catalog-info.yaml` — entidade do Backstage.

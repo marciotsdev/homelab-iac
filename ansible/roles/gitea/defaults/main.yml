@@ -1,0 +1,11 @@
+gitea_version: "1.26.1"
+gitea_user: git
+gitea_home: /var/lib/gitea
+gitea_config_dir: /etc/gitea
+gitea_http_port: 3000
+gitea_ssh_port: 2222
+gitea_domain: "gitea.homelab"
+gitea_admin_user: gitadmin
+gitea_admin_email: "gitadmin@homelab.local"
+gitea_demo_repo: sample-app
+gitea_secrets_dir: "{{ playbook_dir }}/../secrets"

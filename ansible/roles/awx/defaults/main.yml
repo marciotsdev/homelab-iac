@@ -1,0 +1,6 @@
+awx_namespace: awx
+awx_operator_version: "2.19.1"
+awx_secrets_dir: "{{ playbook_dir }}/../secrets"
+awx_manifests_dir: /opt/awx-k3s
+awx_admin_user: admin
+kubeconfig: /etc/rancher/k3s/k3s.yaml

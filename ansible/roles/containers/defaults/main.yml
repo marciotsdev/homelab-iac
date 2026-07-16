@@ -1,0 +1,14 @@
+demo_apps_dir: /opt/demo-apps
+demo_apps:
+  - name: app1
+    port: 8081
+    color: "#38bdf8"
+    label: "demo-app1 (deploy via CI/CD)"
+  - name: app2
+    port: 8082
+    color: "#f472b6"
+    label: "demo-app2 (static)"
+  - name: app3
+    port: 8083
+    color: "#facc15"
+    label: "demo-app3 (static)"

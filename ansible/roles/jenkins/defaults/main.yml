@@ -1,0 +1,11 @@
+jenkins_admin_user: admin
+jenkins_home: /var/lib/jenkins
+jenkins_secrets_dir: "{{ playbook_dir }}/../secrets"
+jenkins_url: "http://127.0.0.1:{{ jenkins_port }}"
+jenkins_plugins:
+  - git
+  - workflow-aggregator
+  - gitea
+  - credentials-binding
+  - matrix-auth
+  - pipeline-stage-view

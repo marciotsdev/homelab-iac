@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: sample-app
+  description: Demo app do homelab — deploy via Gitea -> Jenkins -> AWX -> containers
+  annotations:
+    jenkins.io/job-full-name: sample-app
+  links:
+    - url: "http://{{ hostvars['jenkins'].ansible_host }}:{{ jenkins_port }}/job/sample-app/"
+      title: Jenkins pipeline
+    - url: "http://{{ hostvars['awx'].ansible_host }}:{{ awx_port }}"
+      title: AWX
+    - url: "http://{{ hostvars['containers'].ansible_host }}:8081"
+      title: demo-app1 (live)
+spec:
+  type: service
+  lifecycle: experimental
+  owner: homelab
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: homelab
+  description: Homelab platform team (Gitea + Jenkins + AWX + containers)
+spec:
+  type: team
+  children: []

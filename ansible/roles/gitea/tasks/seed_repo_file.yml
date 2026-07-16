@@ -1,0 +1,25 @@
+---
+- name: "Check existing file: {{ seed_item.path }}"
+  uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/api/v1/repos/{{ gitea_admin_user }}/{{ gitea_demo_repo }}/contents/{{ seed_item.path }}"
+    method: GET
+    headers:
+      Authorization: "token {{ gitea_admin_token }}"
+    status_code: [200, 404]
+  register: existing_file
+  no_log: true
+
+- name: "Push file: {{ seed_item.path }}"
+  uri:
+    url: "http://127.0.0.1:{{ gitea_http_port }}/api/v1/repos/{{ gitea_admin_user }}/{{ gitea_demo_repo }}/contents/{{ seed_item.path }}"
+    method: PUT
+    headers:
+      Authorization: "token {{ gitea_admin_token }}"
+    body_format: json
+    body:
+      message: "ansible: seed/update {{ seed_item.path }}"
+      content: "{{ lookup('template', seed_item.template) | b64encode }}"
+      branch: main
+      sha: "{{ existing_file.json.sha | default(omit) }}"
+    status_code: [200, 201]
+  no_log: true

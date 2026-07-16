@@ -1,0 +1,28 @@
+---
+- name: Deploy sample-app to demo-app1 container
+  hosts: containers
+  become: true
+  vars:
+    repo_url: "http://{{ gitea_domain }}:{{ gitea_http_port }}/{{ gitea_admin_user }}/{{ gitea_demo_repo }}.git"
+    checkout_dir: /opt/sample-app
+    app1_content_dir: /opt/demo-apps/app1
+
+  tasks:
+    - name: Pull latest sample-app from Gitea
+      git:
+        repo: "{{ '{{' }} repo_url {{ '}}' }}"
+        dest: "{{ '{{' }} checkout_dir {{ '}}' }}"
+        version: main
+        force: true
+
+    - name: Publish index.html to demo-app1
+      copy:
+        src: "{{ '{{' }} checkout_dir {{ '}}' }}/index.html"
+        dest: "{{ '{{' }} app1_content_dir {{ '}}' }}/index.html"
+        remote_src: true
+
+    - name: Mark app1 as deployed via CI/CD
+      copy:
+        content: ""
+        dest: "{{ '{{' }} app1_content_dir {{ '}}' }}/.deployed"
+        force: false

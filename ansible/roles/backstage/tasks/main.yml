@@ -1,0 +1,252 @@
+---
+- name: Add NodeSource apt repo (Node.js {{ node_major }}.x)
+  shell: curl -fsSL https://deb.nodesource.com/setup_{{ node_major }}.x | bash -
+  args:
+    creates: /etc/apt/sources.list.d/nodesource.list
+  become: true
+
+- name: Install nodejs
+  apt:
+    name: nodejs
+    state: present
+    update_cache: true
+  become: true
+
+- name: Enable corepack
+  command: corepack enable
+  become: true
+  changed_when: false
+
+- name: Prepare yarn stable via corepack
+  command: corepack prepare yarn@stable --activate
+  become: true
+  changed_when: false
+
+- name: Ensure backstage system user
+  user:
+    name: "{{ backstage_user }}"
+    system: true
+    shell: /bin/bash
+    home: "{{ backstage_app_dir }}"
+    create_home: false
+  become: true
+
+- name: Ensure backstage app directory
+  file:
+    path: "{{ backstage_app_dir }}"
+    state: directory
+    owner: "{{ backstage_user }}"
+    group: "{{ backstage_user }}"
+    mode: "0750"
+  become: true
+
+- name: Check if app already scaffolded
+  stat:
+    path: "{{ backstage_app_dir }}/package.json"
+  become: true
+  register: backstage_scaffolded
+
+- name: Scaffold backstage app
+  shell: printf 'backstage\n' | npx --yes @backstage/create-app@latest --path . --skip-install
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  when: not backstage_scaffolded.stat.exists
+
+- name: Check if dependencies already installed
+  stat:
+    path: "{{ backstage_app_dir }}/node_modules/.yarn-state.yml"
+  become: true
+  register: backstage_deps_installed
+
+- name: yarn install
+  command: yarn install
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  when: not backstage_deps_installed.stat.exists
+  notify: rebuild backstage backend
+
+- name: Check if gitea/jenkins backend plugins already added
+  command: grep -q plugin-catalog-backend-module-gitea packages/backend/package.json
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  register: backend_plugins_check
+  changed_when: false
+  failed_when: false
+
+- name: Add gitea catalog discovery and jenkins backend plugins
+  command: >
+    yarn --cwd packages/backend add
+    @backstage/plugin-catalog-backend-module-gitea@0.1.14
+    @backstage-community/plugin-jenkins-backend@0.29.0
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  when: backend_plugins_check.rc != 0
+  notify: rebuild backstage backend
+
+- name: Check if jenkins frontend plugin already added
+  command: grep -q plugin-jenkins packages/app/package.json
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  register: frontend_plugin_check
+  changed_when: false
+  failed_when: false
+
+- name: Add jenkins frontend plugin
+  command: yarn --cwd packages/app add @backstage-community/plugin-jenkins@0.32.0
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  when: frontend_plugin_check.rc != 0
+  notify: rebuild backstage backend
+
+- name: Register homelab backend plugins in index.ts
+  blockinfile:
+    path: "{{ backstage_app_dir }}/packages/backend/src/index.ts"
+    marker: "// {mark} ANSIBLE MANAGED BLOCK - homelab integrations"
+    insertafter: "backend\\.add\\(import\\('@backstage/plugin-catalog-backend-module-logs'\\)\\);"
+    block: |
+      backend.add(import('@backstage/plugin-catalog-backend-module-gitea'));
+      backend.add(import('@backstage-community/plugin-jenkins-backend'));
+  become: true
+  become_user: "{{ backstage_user }}"
+  notify: rebuild backstage backend
+
+- name: Ensure backstage data directory exists
+  file:
+    path: "{{ backstage_app_dir }}/data"
+    state: directory
+    owner: "{{ backstage_user }}"
+    group: "{{ backstage_user }}"
+    mode: "0750"
+  become: true
+
+- name: Check for existing Jenkins API token for backstage (control node)
+  stat:
+    path: "{{ backstage_secrets_dir }}/jenkins_api_token"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: backstage_jenkins_token_file
+
+- name: Read jenkins admin password (for token generation)
+  set_fact:
+    backstage_jenkins_admin_password: "{{ lookup('file', backstage_secrets_dir + '/jenkins_admin_password') }}"
+  no_log: true
+  when: not backstage_jenkins_token_file.stat.exists
+
+- name: Get CSRF crumb from jenkins (for token generation)
+  uri:
+    url: "http://{{ hostvars['jenkins'].ansible_host }}:{{ jenkins_port }}/crumbIssuer/api/json"
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ backstage_jenkins_admin_password }}"
+    force_basic_auth: true
+  register: backstage_crumb
+  no_log: true
+  when: not backstage_jenkins_token_file.stat.exists
+
+- name: Generate Jenkins API token for backstage
+  uri:
+    url: "http://{{ hostvars['jenkins'].ansible_host }}:{{ jenkins_port }}/me/descriptorByName/jenkins.security.ApiTokenProperty/generateNewToken?newTokenName=backstage"
+    method: POST
+    url_username: "{{ jenkins_admin_user }}"
+    url_password: "{{ backstage_jenkins_admin_password }}"
+    force_basic_auth: true
+    headers:
+      Jenkins-Crumb: "{{ backstage_crumb.json.crumb }}"
+      Cookie: "{{ backstage_crumb.cookies.items() | map('join', '=') | join('; ') }}"
+    status_code: [200]
+  register: backstage_jenkins_token_result
+  no_log: true
+  when: not backstage_jenkins_token_file.stat.exists
+
+- name: Save jenkins API token locally
+  copy:
+    content: "{{ backstage_jenkins_token_result.json.data.tokenValue }}"
+    dest: "{{ backstage_secrets_dir }}/jenkins_api_token"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not backstage_jenkins_token_file.stat.exists
+
+- name: Read jenkins API token for backstage
+  set_fact:
+    backstage_jenkins_api_token: "{{ lookup('file', backstage_secrets_dir + '/jenkins_api_token') }}"
+  no_log: true
+
+- name: Read gitea automation token for backstage
+  set_fact:
+    gitea_admin_token: "{{ lookup('file', backstage_secrets_dir + '/gitea_admin_token') }}"
+  no_log: true
+
+- name: Template app-config.yaml
+  template:
+    src: app-config.yaml.j2
+    dest: "{{ backstage_app_dir }}/app-config.yaml"
+    owner: "{{ backstage_user }}"
+    group: "{{ backstage_user }}"
+    mode: "0640"
+  become: true
+  notify: restart backstage service
+
+- name: Remove default production app-config (would require Postgres)
+  file:
+    path: "{{ backstage_app_dir }}/app-config.production.yaml"
+    state: absent
+  become: true
+
+- name: Template backstage environment file (secrets)
+  template:
+    src: backstage.env.j2
+    dest: /etc/backstage.env
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  notify: restart backstage service
+
+- name: Template backstage systemd unit
+  template:
+    src: backstage.service.j2
+    dest: /etc/systemd/system/backstage.service
+    mode: "0644"
+  become: true
+  notify: restart backstage service
+
+- name: Flush handlers (build/extract/restart before readiness check)
+  meta: flush_handlers
+
+- name: Ensure backstage service is enabled and started
+  systemd:
+    name: backstage
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Wait for backstage HTTP to respond
+  uri:
+    url: "http://127.0.0.1:{{ backstage_port }}/api/catalog/entities?limit=1"
+    status_code: [200, 401]
+  register: backstage_ready
+  until: backstage_ready.status in [200, 401]
+  retries: 30
+  delay: 5

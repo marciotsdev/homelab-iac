@@ -1,0 +1,15 @@
+[Unit]
+Description=Backstage homelab developer portal
+After=network.target
+
+[Service]
+Type=simple
+User={{ backstage_user }}
+WorkingDirectory={{ backstage_run_dir }}
+EnvironmentFile=/etc/backstage.env
+ExecStart=/usr/bin/node {{ backstage_run_dir }}/packages/backend/dist/index.cjs.js --config {{ backstage_app_dir }}/app-config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
