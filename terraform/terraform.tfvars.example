@@ -1,27 +1,35 @@
 gateway             = "192.168.1.1"
 ssh_public_key_path = "~/.ssh/id_ed25519.pub"
 
+# Campos opcionais e seus defaults (ver variables.tf):
+#   sockets=1 · cpu_type="host" · tags=["lab"] · on_boot=false
+#   template_vm_id=var.template_vm_id · datastore_id=var.datastore_id
+#   disk_interface="scsi0" · nic_firewall=false · cloudinit=true
+#   ssh_keys=null · dns_servers=null · description=null · scsi_hardware="virtio-scsi-pci"
 vms = {
   awx = {
     vm_id  = 2001
     ip     = "192.168.1.50/24"
     cores  = 4
-    memory = 10240
+    memory = 16384
     disk   = 60
   }
   jenkins = {
+    # Aposentado (CI migrado para o GitLab) — VM preservada, sem tag e sem boot
     vm_id  = 2002
     ip     = "192.168.1.51/24"
     cores  = 2
     memory = 4096
     disk   = 40
+    tags   = []
   }
   gitea = {
-    vm_id  = 2003
-    ip     = "192.168.1.52/24"
-    cores  = 2
-    memory = 2048
-    disk   = 20
+    vm_id   = 2003
+    ip      = "192.168.1.52/24"
+    cores   = 2
+    memory  = 2048
+    disk    = 20
+    on_boot = true
   }
   containers = {
     vm_id  = 2004
@@ -34,14 +42,54 @@ vms = {
     vm_id  = 2005
     ip     = "192.168.1.54/24"
     cores  = 2
-    memory = 2048
+    memory = 4096
     disk   = 20
   }
   backstage = {
-    vm_id  = 2006
-    ip     = "192.168.1.55/24"
-    cores  = 2
-    memory = 4096
-    disk   = 30
+    vm_id   = 2006
+    ip      = "192.168.1.55/24"
+    cores   = 2
+    sockets = 2
+    memory  = 8192
+    disk    = 45
+  }
+  localstack = {
+    # MiniStack (emulador AWS) + StackPort
+    vm_id       = 2007
+    ip          = "192.168.1.56/24"
+    cores       = 2
+    memory      = 4096
+    disk        = 21
+    dns_servers = ["192.168.1.1"]
+  }
+  gitlab = {
+    # GitLab CE via docker compose — clonado de template manual (sem cloud-init);
+    # IP estatico configurado dentro do guest (netplan)
+    vm_id          = 2008
+    ip             = "192.168.1.57/24"
+    cores          = 2
+    sockets        = 4
+    cpu_type       = "x86-64-v2-AES"
+    memory         = 24576
+    disk           = 120
+    datastore_id   = "DATA"
+    disk_interface = "sata0"
+    template_vm_id = 10016
+    nic_firewall   = true
+    cloudinit      = false
+    on_boot        = true
+    scsi_hardware  = "virtio-scsi-single"
+    description    = "GitLab CE + runner via docker compose"
+  }
+  gitlab-runners = {
+    # Runners de CI em containers (runner-infra shell + runner-docker)
+    vm_id       = 2009
+    ip          = "192.168.1.58/24"
+    cores       = 2
+    memory      = 4096
+    disk        = 21
+    on_boot     = true
+    dns_servers = ["192.168.1.1"]
+    # ssh_keys = ["ssh-ed25519 AAAA... chave-adicional"]  # exemplo de chaves extras
   }
 }
