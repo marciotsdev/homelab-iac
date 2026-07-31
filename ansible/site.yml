@@ -46,6 +46,13 @@
   gather_facts: true
   roles:
     - backstage
+    # TLS na frente do Backstage: o frontend usa crypto.randomUUID(), que so
+    # existe em contexto seguro (https:// ou localhost) — em http:// puro o app
+    # quebra na inicializacao.
+    - role: caddy
+      caddy_sites:
+        - address: "https://{{ hostvars['backstage'].ansible_host }}"
+          upstream: "127.0.0.1:{{ backstage_port }}"
 
 # Jenkins foi aposentado em jul/2026 (CI migrado para o GitLab). A VM continua
 # preservada; o papel so roda sob demanda, para nao ressuscitar a esteira antiga.

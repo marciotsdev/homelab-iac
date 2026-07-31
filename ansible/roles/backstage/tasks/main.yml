@@ -149,7 +149,7 @@
   set_fact:
     backstage_jenkins_admin_password: "{{ lookup('file', backstage_secrets_dir + '/jenkins_admin_password') }}"
   no_log: true
-  when: not backstage_jenkins_token_file.stat.exists
+  when: not backstage_jenkins_token_file.stat.exists and (enable_legacy_jenkins | default(false) | bool)
 
 - name: Get CSRF crumb from jenkins (for token generation)
   uri:
@@ -159,7 +159,7 @@
     force_basic_auth: true
   register: backstage_crumb
   no_log: true
-  when: not backstage_jenkins_token_file.stat.exists
+  when: not backstage_jenkins_token_file.stat.exists and (enable_legacy_jenkins | default(false) | bool)
 
 - name: Generate Jenkins API token for backstage
   uri:
@@ -174,7 +174,7 @@
     status_code: [200]
   register: backstage_jenkins_token_result
   no_log: true
-  when: not backstage_jenkins_token_file.stat.exists
+  when: not backstage_jenkins_token_file.stat.exists and (enable_legacy_jenkins | default(false) | bool)
 
 - name: Save jenkins API token locally
   copy:
@@ -184,17 +184,37 @@
   delegate_to: localhost
   become: false
   no_log: true
-  when: not backstage_jenkins_token_file.stat.exists
+  when: not backstage_jenkins_token_file.stat.exists and (enable_legacy_jenkins | default(false) | bool)
 
-- name: Read jenkins API token for backstage
+- name: Read jenkins API token for backstage (legado, opcional)
   set_fact:
     backstage_jenkins_api_token: "{{ lookup('file', backstage_secrets_dir + '/jenkins_api_token') }}"
   no_log: true
+  when: backstage_jenkins_token_file.stat.exists
 
 - name: Read gitea automation token for backstage
   set_fact:
     gitea_admin_token: "{{ lookup('file', backstage_secrets_dir + '/gitea_admin_token') }}"
   no_log: true
+
+- name: Create catalog directory (entidades de infra sem repo proprio)
+  file:
+    path: "{{ backstage_app_dir }}/catalog"
+    state: directory
+    owner: "{{ backstage_user }}"
+    group: "{{ backstage_user }}"
+    mode: "0755"
+  become: true
+
+- name: Template the aws-local catalog entities (MiniStack + StackPort)
+  template:
+    src: aws-local.yaml.j2
+    dest: "{{ backstage_app_dir }}/catalog/aws-local.yaml"
+    owner: "{{ backstage_user }}"
+    group: "{{ backstage_user }}"
+    mode: "0644"
+  become: true
+  notify: restart backstage service
 
 - name: Template app-config.yaml
   template:

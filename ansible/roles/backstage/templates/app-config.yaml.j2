@@ -1,6 +1,8 @@
 app:
   title: Homelab Backstage
-  baseUrl: "http://{{ hostvars['backstage'].ansible_host }}:{{ backstage_port }}"
+  # Servido pelo Caddy (TLS) na mesma VM. Contexto seguro e obrigatorio: o
+  # frontend usa crypto.randomUUID(), que so existe em https:// ou localhost.
+  baseUrl: "{{ backstage_external_url }}"
 
   # Enable all packages by default, this will discover packages from packages/app/package.json
   packages: all
@@ -15,18 +17,23 @@ organization:
   name: Homelab
 
 backend:
-  baseUrl: "http://{{ hostvars['backstage'].ansible_host }}:{{ backstage_port }}"
+  baseUrl: "{{ backstage_external_url }}"
   listen:
     port: {{ backstage_port }}
-    host: 0.0.0.0
+    # So o Caddy (mesma VM) fala com o backend; a porta nao fica exposta na rede.
+    host: 127.0.0.1
+  reading:
+    # Hosts de onde o catalogo pode ler catalog-info.yaml.
+    allow:
+      - host: "{{ hostvars['gitlab'].ansible_host }}:{{ gitlab_http_port }}"
+      - host: "{{ hostvars['gitea'].ansible_host }}:{{ gitea_port }}"
   csp:
     connect-src: ["'self'", 'http:', 'https:']
-    # This deployment is plain HTTP — without this, the default helmet CSP
-    # upgrades every asset request to https:, which this server can't answer,
-    # leaving the frontend blank (ERR_SSL_PROTOCOL_ERROR on every script/css).
+    # As integracoes do lab (GitLab, AWX) sao http:; sem isso a CSP padrao do
+    # helmet promove cada request a https: e quebra as chamadas.
     upgrade-insecure-requests: false
   cors:
-    origin: "http://{{ hostvars['backstage'].ansible_host }}:{{ backstage_port }}"
+    origin: "{{ backstage_external_url }}"
     methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
     credentials: true
   database:
@@ -70,19 +77,27 @@ catalog:
   rules:
     - allow: [Component, System, API, Resource, Location, Group, User]
   locations:
+    # Apps e automacoes: catalog-info.yaml versionado no GitLab.
     - type: url
-      target: "http://{{ hostvars['gitea'].ansible_host }}:{{ gitea_port }}/{{ gitea_admin_user }}/{{ gitea_demo_repo }}/raw/branch/main/catalog-info.yaml"
+      target: "{{ gitlab_url }}/root/{{ gitea_demo_repo }}/-/raw/main/catalog-info.yaml"
+    - type: url
+      target: "{{ gitlab_url }}/root/lab-ops/-/raw/main/catalog-info.yaml"
+    # Infra sem repo proprio (emulador AWS e seu dashboard).
+    - type: file
+      target: "{{ backstage_app_dir }}/catalog/aws-local.yaml"
 
 kubernetes:
 
 permission:
   enabled: false
 
+{% if enable_legacy_jenkins | default(false) | bool %}
 jenkins:
   baseUrl: "http://{{ hostvars['jenkins'].ansible_host }}:{{ jenkins_port }}"
   username: "{{ jenkins_admin_user }}"
   apiKey: ${JENKINS_API_TOKEN}
 
+{% endif %}
 mcpActions:
   name: 'Homelab Backstage'
-  description: 'Software catalog for the homelab (Gitea + Jenkins + AWX + containers)'
+  description: 'Software catalog for the homelab (GitLab + AWX + containers)'
