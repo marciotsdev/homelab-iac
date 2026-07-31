@@ -1,0 +1,12 @@
+gitlab_image: "gitlab/gitlab-ce:latest"
+gitlab_dir: /opt/gitlab
+gitlab_http_port: 8088
+gitlab_ssh_port: 2224
+gitlab_hostname: "gitlab.homelab"
+# Endereco pelo qual os clientes (browser, runners, Backstage) alcancam o GitLab.
+# Sobrescrito em group_vars a partir de homelab_hosts.gitlab.
+gitlab_external_host: "{{ ansible_default_ipv4.address }}"
+gitlab_secrets_dir: "{{ playbook_dir }}/../secrets"
+# Espera ate o GitLab responder; a primeira subida leva alguns minutos.
+gitlab_ready_retries: 60
+gitlab_ready_delay: 15

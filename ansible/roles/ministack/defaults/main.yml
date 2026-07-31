@@ -1,0 +1,8 @@
+# MiniStack — emulador AWS local (MIT). Substituiu o LocalStack, que desde
+# 2026-03-23 exige LOCALSTACK_AUTH_TOKEN mesmo para os recursos community.
+ministack_image: "ministackorg/ministack"
+ministack_port: 4566
+ministack_dir: /opt/ministack
+# StackPort — browser web de recursos (S3, DynamoDB, Lambda, SQS, IAM, EC2...).
+stackport_image: "davireis/stackport"
+stackport_port: 8080

@@ -5,3 +5,10 @@ homelab_hosts:
   containers: 192.168.1.53
   client: 192.168.1.54
   backstage: 192.168.1.55
+  localstack: 192.168.1.56
+  gitlab: 192.168.1.57
+  gitlab-runners: 192.168.1.58
+
+# Host do Proxmox — o runner de infra conecta nele por chave SSH restrita
+# (command=/usr/local/bin/lab-ops-dispatch.sh) para ligar/desligar o lab.
+proxmox_host: 192.168.1.7

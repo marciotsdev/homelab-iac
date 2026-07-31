@@ -1,0 +1,129 @@
+---
+- name: Install docker
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure docker is enabled and running
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+- name: Create runner config directories
+  file:
+    path: "{{ gitlab_runner_base_dir }}/{{ item.name }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ gitlab_runners }}"
+  become: true
+
+# --- Chave SSH do runner de infra (pipelines de startup/shutdown do lab) ---
+
+- name: Create SSH directory for the infra runner
+  file:
+    path: "{{ gitlab_runner_ssh_dir }}"
+    state: directory
+    owner: "{{ gitlab_runner_uid }}"
+    group: "{{ gitlab_runner_uid }}"
+    mode: "0700"
+  become: true
+
+- name: Generate the infra runner SSH keypair
+  command: >
+    ssh-keygen -t ed25519 -N "" -C gitlab-runner@lab-ops
+    -f {{ gitlab_runner_ssh_dir }}/id_ed25519
+  args:
+    creates: "{{ gitlab_runner_ssh_dir }}/id_ed25519"
+  become: true
+
+- name: Fix ownership of the runner SSH material
+  file:
+    path: "{{ gitlab_runner_ssh_dir }}/{{ item.file }}"
+    owner: "{{ gitlab_runner_uid }}"
+    group: "{{ gitlab_runner_uid }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { file: id_ed25519, mode: "0600" }
+    - { file: id_ed25519.pub, mode: "0644" }
+  become: true
+
+- name: Pre-seed the Proxmox host key
+  shell: >
+    ssh-keyscan -t ed25519 {{ proxmox_host }} > {{ gitlab_runner_ssh_dir }}/known_hosts
+  args:
+    creates: "{{ gitlab_runner_ssh_dir }}/known_hosts"
+  become: true
+
+- name: Read the infra runner public key
+  slurp:
+    src: "{{ gitlab_runner_ssh_dir }}/id_ed25519.pub"
+  register: runner_pubkey
+  become: true
+
+- name: Show the key that must be authorized on the Proxmox host
+  debug:
+    msg: >-
+      Autorize esta chave em root@{{ proxmox_host }}:/root/.ssh/authorized_keys com
+      command="/usr/local/bin/lab-ops-dispatch.sh",restrict —
+      {{ runner_pubkey.content | b64decode | trim }}
+
+# --- Registro dos runners no GitLab ---
+
+- name: Check which runners are already registered
+  stat:
+    path: "{{ gitlab_runner_base_dir }}/{{ item.name }}/config.toml"
+  loop: "{{ gitlab_runners }}"
+  register: runner_configs
+  become: true
+
+- name: Create runner tokens on the GitLab server
+  command: >
+    docker exec gitlab-server gitlab-rails runner
+    "print Ci::Runner.create!(runner_type: :instance_type,
+    description: %q({{ item.item.name }}),
+    tag_list: [{{ item.item.tags | map('regex_replace', '^(.*)$', '%q(\\1)') | join(', ') }}],
+    run_untagged: {{ item.item.run_untagged | lower }}).token"
+  delegate_to: "{{ gitlab_inventory_host }}"
+  become: true
+  loop: "{{ runner_configs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: not item.stat.exists
+  register: runner_tokens
+  no_log: true
+
+- name: Register the runners
+  command: >
+    docker run --rm -v {{ gitlab_runner_base_dir }}/{{ item.item.item.name }}:/etc/gitlab-runner
+    {{ gitlab_runner_image }} register --non-interactive
+    --url {{ gitlab_url }}
+    --token {{ item.stdout | regex_search('glrtr?-[A-Za-z0-9_=-]+') }}
+    --executor {{ item.item.item.executor }}
+    {% if item.item.item.executor == 'docker' %}--docker-image {{ item.item.item.docker_image }}{% endif %}
+    --description {{ item.item.item.name }}
+  become: true
+  loop: "{{ runner_tokens.results }}"
+  loop_control:
+    label: "{{ item.item.item.name }}"
+  when: not item.skipped | default(false)
+  no_log: true
+
+# --- Containers dos runners ---
+
+- name: Run the runner containers
+  command: >
+    docker run -d --name {{ item.name }} --restart unless-stopped
+    -v {{ gitlab_runner_base_dir }}/{{ item.name }}:/etc/gitlab-runner
+    {% if item.mount_ssh %}-v {{ gitlab_runner_ssh_dir }}:/home/gitlab-runner/.ssh:ro{% else %}-v /var/run/docker.sock:/var/run/docker.sock{% endif %}
+    {{ gitlab_runner_image }}
+  become: true
+  loop: "{{ gitlab_runners }}"
+  register: runner_run
+  changed_when: runner_run.rc == 0
+  failed_when: runner_run.rc != 0 and 'already in use' not in runner_run.stderr

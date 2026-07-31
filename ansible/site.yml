@@ -5,17 +5,29 @@
   roles:
     - common
 
-- name: Gitea
+- name: Gitea (legacy mirror)
   hosts: gitea
   gather_facts: true
   roles:
     - gitea
 
-- name: Jenkins
-  hosts: jenkins
+- name: GitLab (git + CI)
+  hosts: gitlab
   gather_facts: true
   roles:
-    - jenkins
+    - gitlab
+
+- name: GitLab runners
+  hosts: gitlab-runners
+  gather_facts: true
+  roles:
+    - gitlab_runners
+
+- name: MiniStack (local AWS emulator)
+  hosts: localstack
+  gather_facts: true
+  roles:
+    - ministack
 
 - name: Containers
   hosts: containers
@@ -34,3 +46,13 @@
   gather_facts: true
   roles:
     - backstage
+
+# Jenkins foi aposentado em jul/2026 (CI migrado para o GitLab). A VM continua
+# preservada; o papel so roda sob demanda, para nao ressuscitar a esteira antiga.
+# Para rodar: ansible-playbook site.yml -e enable_legacy_jenkins true
+- name: Jenkins (aposentado)
+  hosts: jenkins
+  gather_facts: true
+  roles:
+    - role: jenkins
+      when: enable_legacy_jenkins | default(false) | bool

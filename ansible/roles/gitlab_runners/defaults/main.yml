@@ -1,0 +1,21 @@
+gitlab_runner_image: "gitlab/gitlab-runner:latest"
+gitlab_runner_base_dir: /srv
+# UID do usuario gitlab-runner dentro da imagem oficial — usado para dar posse
+# da chave SSH montada no runner de infra.
+gitlab_runner_uid: 999
+gitlab_runner_ssh_dir: /srv/runner-ssh
+# Host do Proxmox que o runner-infra alcanca (chave restrita ao dispatcher).
+proxmox_host: "192.168.1.7"
+gitlab_runners:
+  - name: runner-infra
+    executor: shell
+    tags: ["infra"]
+    run_untagged: false
+    # Monta a chave SSH restrita: usada pelas pipelines de startup/shutdown do lab.
+    mount_ssh: true
+  - name: runner-docker
+    executor: docker
+    tags: ["docker"]
+    run_untagged: true
+    docker_image: "alpine:latest"
+    mount_ssh: false

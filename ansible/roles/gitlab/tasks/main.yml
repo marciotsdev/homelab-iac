@@ -1,0 +1,62 @@
+---
+- name: Install docker
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure docker is enabled and running
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ gitlab_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate/read root password (control node, idempotent)
+  set_fact:
+    gitlab_root_password: "{{ lookup('password', gitlab_secrets_dir + '/gitlab_root_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Create GitLab stack directory
+  file:
+    path: "{{ gitlab_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Template docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ gitlab_dir }}/docker-compose.yml"
+    mode: "0600"
+  become: true
+  no_log: true
+  register: gitlab_compose
+
+- name: Start GitLab
+  command: docker compose -f {{ gitlab_dir }}/docker-compose.yml up -d
+  become: true
+  register: gitlab_compose_up
+  changed_when: "'Started' in gitlab_compose_up.stderr or 'Created' in gitlab_compose_up.stderr or 'Recreated' in gitlab_compose_up.stderr"
+
+- name: Wait for GitLab to answer (first boot takes a few minutes)
+  uri:
+    url: "http://{{ gitlab_external_host }}:{{ gitlab_http_port }}/users/sign_in"
+    status_code: 200
+  register: gitlab_ready
+  retries: "{{ gitlab_ready_retries }}"
+  delay: "{{ gitlab_ready_delay }}"
+  until: gitlab_ready is succeeded
+  changed_when: false
