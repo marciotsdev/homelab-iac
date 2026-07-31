@@ -54,9 +54,15 @@ Most VMs are cloned from an `ubuntu-2204-template` via the [bpg/proxmox](https:/
 ## Layout
 
 - `terraform/` — VM provisioning (`vms.tf`, `variables.tf`, `outputs.tf`). Credentials come from `PROXMOX_VE_*` environment variables, never from files in this repo. Power state is managed by the lab's GitLab pipelines, not Terraform (`ignore_changes = [started, clone]`).
-- `ansible/` — Configuration management. One role per service (`awx`, `jenkins`, `gitea`, `containers`, `backstage`, `common`). All admin passwords/tokens are generated with Ansible's `password`/`file` lookups against a local, git-ignored `secrets/` directory — nothing is hardcoded.
+- `ansible/` — Configuration management. One role per service (`common`, `gitea`, `gitlab`, `gitlab_runners`, `ministack`, `containers`, `awx`, `backstage`, and the retired `jenkins`). All admin passwords/tokens are generated with Ansible's `password`/`file` lookups against a local, git-ignored `secrets/` directory — nothing is hardcoded.
 
-> **Roadmap:** Ansible roles for the GitLab stack (server, runners, Caddy TLS on Backstage, MiniStack) are not yet written — those services were configured in place. Until then, re-running `site.yml` re-applies the *legacy* pipeline config (it re-templates the sample-app Jenkinsfile); prefer targeted role runs.
+### Notes on the newer roles
+
+- **`gitlab`** provisions GitLab CE from a plain Ubuntu VM (docker compose under `/opt/gitlab`), so a rebuild no longer depends on the hand-built template. The running instance predates the role and still lives under `/home/marcio/gitlab-docker-setup` — converging means re-provisioning VM 2008.
+- **`gitlab_runners`** creates the runner tokens by delegating to the GitLab host and prints the infra runner's public key; that key must be authorized on the Proxmox host with `command="/usr/local/bin/lab-ops-dispatch.sh",restrict` so the startup/shutdown pipelines can run — the one deliberately manual step.
+- **`jenkins`** only runs with `-e enable_legacy_jenkins true`; otherwise a full `site.yml` would resurrect the retired pipeline (the `gitea` role still re-templates the sample-app Jenkinsfile).
+
+> **Still open:** the Caddy/TLS front end on the Backstage VM is configured in place and not yet expressed as a role.
 
 ## Usage
 
