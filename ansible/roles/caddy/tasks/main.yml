@@ -1,0 +1,103 @@
+---
+# Normalizacao antes de qualquer apt: se o repositorio do Caddy foi adicionado
+# com um keyring fora do caminho canonico, o apt aborta com "Conflicting values
+# set for option Signed-By" e nem consegue ler a lista de fontes.
+- name: Check for an existing Caddy repository file
+  stat:
+    path: /etc/apt/sources.list.d/caddy-stable.list
+  register: caddy_repo_file
+
+- name: Drop Caddy source lines pointing at a non-canonical keyring
+  lineinfile:
+    path: /etc/apt/sources.list.d/caddy-stable.list
+    regexp: '^deb .*caddy-stable\.asc'
+    state: absent
+  become: true
+  when: caddy_repo_file.stat.exists
+
+- name: Drop keyring copies from other layouts
+  file:
+    path: /etc/apt/keyrings/caddy-stable.asc
+    state: absent
+  become: true
+
+- name: Install prerequisites for the Caddy apt repository
+  apt:
+    name:
+      - debian-keyring
+      - debian-archive-keyring
+      - apt-transport-https
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+  become: true
+
+- name: Fetch the Caddy repository signing key
+  get_url:
+    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+    dest: /tmp/caddy-stable.asc
+    mode: "0644"
+  become: true
+
+# Caminho canonico da documentacao oficial do Caddy. Usar outro diretorio faz
+# o apt abortar com "Conflicting values set for option Signed-By".
+- name: Install the dearmored signing key
+  command: gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy-stable.asc
+  args:
+    creates: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  become: true
+
+- name: Configure the Caddy apt repository
+  copy:
+    dest: /etc/apt/sources.list.d/caddy-stable.list
+    content: |
+      # Managed by Ansible (role: caddy)
+      deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main
+      deb-src [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: caddy_repo
+
+- name: Install caddy
+  apt:
+    name: caddy
+    state: present
+    update_cache: "{{ caddy_repo.changed }}"
+  become: true
+
+- name: Template the Caddyfile
+  template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: caddy
+    mode: "0640"
+  become: true
+  notify: reload caddy
+
+- name: Ensure caddy is enabled and running
+  systemd:
+    name: caddy
+    enabled: true
+    state: started
+  become: true
+
+- name: Flush handlers (reload before the readiness check)
+  meta: flush_handlers
+
+- name: Wait for each site to answer over TLS
+  uri:
+    url: "{{ item.address }}"
+    validate_certs: false
+    status_code: [200, 301, 302, 401]
+  loop: "{{ caddy_sites }}"
+  loop_control:
+    label: "{{ item.address }}"
+  register: caddy_ready
+  until: caddy_ready is succeeded
+  retries: 10
+  delay: 5
+  changed_when: false

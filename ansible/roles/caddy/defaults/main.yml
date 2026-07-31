@@ -1,0 +1,10 @@
+# Reverse proxy com TLS. Como os enderecos do lab sao IPs privados (o Let's
+# Encrypt nao emite para eles), o Caddy usa `tls internal`: cria uma CA local
+# e emite/renova o certificado sozinho.
+#
+# Cada site e um bloco do Caddyfile:
+#   caddy_sites:
+#     - address: "https://192.168.1.55"   # como o cliente acessa
+#       upstream: "127.0.0.1:7007"        # servico por tras (HTTP simples)
+caddy_sites: []
+caddy_tls_mode: internal

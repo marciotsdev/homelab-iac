@@ -1,0 +1,44 @@
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: aws-local
+  description: Emulacao local da AWS para desenvolvimento e testes no homelab
+spec:
+  owner: homelab
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: ministack
+  description: >-
+    Emulador AWS (60+ servicos, MIT) — substituiu o LocalStack apos a mudanca
+    de licenca. Roda na VM localstack.
+  links:
+    - url: "http://{{ hostvars['localstack'].ansible_host }}:{{ ministack_port }}"
+      title: Endpoint AWS (CLI/SDKs)
+    - url: "http://{{ hostvars['localstack'].ansible_host }}:{{ ministack_port }}/_ministack/health"
+      title: Health check
+    - url: "https://github.com/ministackorg/ministack"
+      title: Projeto (GitHub)
+spec:
+  type: aws-emulator
+  owner: homelab
+  system: aws-local
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: stackport
+  description: >-
+    Dashboard web do MiniStack — browser de recursos com UIs de S3, DynamoDB,
+    Lambda, SQS, IAM, EC2, CloudWatch Logs e Secrets Manager.
+  links:
+    - url: "http://{{ hostvars['localstack'].ansible_host }}:{{ stackport_port }}"
+      title: Painel (UI)
+    - url: "https://github.com/DaviReisVieira/stackport"
+      title: Projeto (GitHub)
+spec:
+  type: dashboard
+  owner: homelab
+  system: aws-local
+  dependsOn: [resource:ministack]

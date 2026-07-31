@@ -1,0 +1,11 @@
+---
+# Playbook auxiliar: aplica so o papel caddy (util para validar/convergir o TLS
+# sem passar pelo build do Backstage).
+- name: Caddy TLS na frente do Backstage
+  hosts: backstage
+  gather_facts: true
+  roles:
+    - role: caddy
+      caddy_sites:
+        - address: "https://{{ hostvars['backstage'].ansible_host }}"
+          upstream: "127.0.0.1:{{ backstage_port }}"

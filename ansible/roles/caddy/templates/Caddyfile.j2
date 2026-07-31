@@ -1,0 +1,6 @@
+{% for site in caddy_sites %}
+{{ site.address }} {
+	tls {{ site.tls | default(caddy_tls_mode) }}
+	reverse_proxy {{ site.upstream }}
+}
+{% endfor %}

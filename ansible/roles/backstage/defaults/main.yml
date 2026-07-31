@@ -1,3 +1,6 @@
+# URL publica do Backstage — servida pelo Caddy com TLS na propria VM.
+# O frontend exige contexto seguro (crypto.randomUUID nao existe em http:// puro).
+backstage_external_url: "https://{{ hostvars['backstage'].ansible_host }}"
 backstage_app_dir: /opt/backstage
 backstage_run_dir: /opt/backstage/.run
 backstage_user: backstage
