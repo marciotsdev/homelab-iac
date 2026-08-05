@@ -7,3 +7,10 @@ backstage_user: backstage
 backstage_secrets_dir: "{{ playbook_dir }}/../secrets"
 node_major: "22"
 jenkins_admin_user: admin
+
+# SSO via Keycloak (realm dedicado "homelab", separado do "master" usado só
+# para administração do proprio Keycloak). Keycloak serve sob o path legado
+# /auth (chart codecentric/keycloakx) — precisa estar no baseUrl.
+keycloak_base_url: "https://192.168.15.59:8443/auth"
+keycloak_realm: homelab
+backstage_keycloak_client_id: backstage

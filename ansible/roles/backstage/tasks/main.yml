@@ -116,6 +116,49 @@
   when: frontend_plugin_check.rc != 0
   notify: rebuild backstage backend
 
+- name: Check if keycloak auth backend module already added
+  command: grep -q plugin-auth-backend-module-keycloak-provider packages/backend/package.json
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  register: keycloak_backend_check
+  changed_when: false
+  failed_when: false
+
+- name: Add keycloak auth backend module and remove the guest provider
+  command: >
+    yarn --cwd packages/backend
+    add @backstage-community/plugin-auth-backend-module-keycloak-provider@0.4.0
+    remove @backstage/plugin-auth-backend-module-guest-provider
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  when: keycloak_backend_check.rc != 0
+  notify: rebuild backstage backend
+
+- name: Check if core-app-api already added to the frontend (needed for OAuth2.create)
+  command: grep -q '"@backstage/core-app-api"' packages/app/package.json
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  register: core_app_api_check
+  changed_when: false
+  failed_when: false
+
+- name: Add core-app-api frontend dependency
+  command: yarn --cwd packages/app add @backstage/core-app-api@1.20.3
+  args:
+    chdir: "{{ backstage_app_dir }}"
+  become: true
+  become_user: "{{ backstage_user }}"
+  environment:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  when: core_app_api_check.rc != 0
+  notify: rebuild backstage backend
+
 - name: Register homelab backend plugins in index.ts
   blockinfile:
     path: "{{ backstage_app_dir }}/packages/backend/src/index.ts"
@@ -124,6 +167,17 @@
     block: |
       backend.add(import('@backstage/plugin-catalog-backend-module-gitea'));
       backend.add(import('@backstage-community/plugin-jenkins-backend'));
+  become: true
+  become_user: "{{ backstage_user }}"
+  notify: rebuild backstage backend
+
+# O guest provider vem do scaffold padrao do create-app, fora do bloco
+# ANSIBLE MANAGED — trocado no lugar por regex em vez de blockinfile.
+- name: Swap the guest auth provider for the keycloak provider in index.ts
+  replace:
+    path: "{{ backstage_app_dir }}/packages/backend/src/index.ts"
+    regexp: "backend\\.add\\(import\\('@backstage/plugin-auth-backend-module-guest-provider'\\)\\);\\n?"
+    replace: "backend.add(import('@backstage-community/plugin-auth-backend-module-keycloak-provider'));\n"
   become: true
   become_user: "{{ backstage_user }}"
   notify: rebuild backstage backend
@@ -197,6 +251,11 @@
     gitea_admin_token: "{{ lookup('file', backstage_secrets_dir + '/gitea_admin_token') }}"
   no_log: true
 
+- name: Read keycloak client secret for backstage SSO
+  set_fact:
+    backstage_keycloak_client_secret: "{{ lookup('file', backstage_secrets_dir + '/backstage_keycloak_client_secret') }}"
+  no_log: true
+
 - name: Create catalog directory (entidades de infra sem repo proprio)
   file:
     path: "{{ backstage_app_dir }}/catalog"
@@ -216,6 +275,19 @@
   become: true
   notify: restart backstage service
 
+- name: Copy the frontend App.tsx (SSO via Keycloak)
+  # copy (nao template): o JSX do arquivo usa muita chave dupla ({{ }} em
+  # provider={{...}}), que colide com os delimitadores do Jinja2. O arquivo
+  # nao tem nenhuma variavel a substituir, entao nao precisa ser processado.
+  copy:
+    src: App.tsx
+    dest: "{{ backstage_app_dir }}/packages/app/src/App.tsx"
+    owner: "{{ backstage_user }}"
+    group: "{{ backstage_user }}"
+    mode: "0644"
+  become: true
+  notify: rebuild backstage backend
+
 - name: Template app-config.yaml
   template:
     src: app-config.yaml.j2
@@ -231,6 +303,21 @@
     path: "{{ backstage_app_dir }}/app-config.production.yaml"
     state: absent
   become: true
+
+- name: Copy the k8s-mgmt Caddy internal CA (needed to trust the Keycloak endpoint)
+  # O Caddy do k8s-mgmt roda "tls internal" (CA propria, gerada localmente —
+  # diferente da CA do Caddy do proprio Backstage). Sem confiar nela, o
+  # Node.js do backend falha o discovery OIDC do Keycloak com "unable to get
+  # local issuer certificate". Certificado de CA raiz: publico por natureza,
+  # ok versionar no git.
+  copy:
+    src: keycloak-ca.crt
+    dest: /etc/backstage-keycloak-ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: restart backstage service
 
 - name: Template backstage environment file (secrets)
   template:

@@ -62,9 +62,21 @@ techdocs:
     type: 'local'
 
 auth:
+  environment: development
   providers:
-    guest:
-      dangerouslyAllowOutsideDevelopment: true
+    keycloak:
+      development:
+        clientId: "{{ backstage_keycloak_client_id }}"
+        clientSecret: ${AUTH_KEYCLOAK_CLIENT_SECRET}
+        baseUrl: "{{ keycloak_base_url }}"
+        realm: "{{ keycloak_realm }}"
+        signIn:
+          resolvers:
+            # Lab de um usuario so: sem sincronizar Users do Keycloak no
+            # catalogo (plugin extra), entao qualquer login valido no realm
+            # "homelab" e aceito sem exigir entidade User pre-existente.
+            - resolver: preferredUsernameMatchingUserEntityName
+              dangerouslyAllowSignInWithoutUserInCatalog: true
   clientIdMetadataDocuments:
     enabled: false
 
