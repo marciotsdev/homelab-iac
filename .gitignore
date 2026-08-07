@@ -17,4 +17,6 @@ terraform/**/.pre-env-split-backup/
 # Environment-specific config (real IPs/paths) — commit the .example versions instead
 ansible/inventory/hosts.ini
 ansible/group_vars/all/hosts.yml
-terraform/**/terraform.tfvars
+# terraform.tfvars agora e versionado (ver commit "Versionar terraform.tfvars"):
+# so tem IPs de rede privada e chaves SSH publicas, nada sensivel de verdade,
+# e precisa estar no git pra mudancas de infra virarem PR revisavel.
