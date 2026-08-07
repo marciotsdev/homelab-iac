@@ -87,7 +87,7 @@
     docker exec gitlab-server gitlab-rails runner
     "print Ci::Runner.create!(runner_type: :instance_type,
     description: %q({{ item.item.name }}),
-    tag_list: [{{ item.item.tags | map('regex_replace', '^(.*)$', '%q(\\1)') | join(', ') }}],
+    tag_list: [{% for t in item.item.tags %}%q({{ t }}){% if not loop.last %}, {% endif %}{% endfor %}],
     run_untagged: {{ item.item.run_untagged | lower }}).token"
   delegate_to: "{{ gitlab_inventory_host }}"
   become: true
