@@ -1,0 +1,58 @@
+stages:
+  - validate
+  - plan
+  - apply
+
+variables:
+  TF_ROOT: terraform/infra-base
+
+default:
+  image: hashicorp/terraform:1.9
+  tags:
+    - docker
+  before_script:
+    - cd ${TF_ROOT}
+    # CI_JOB_TOKEN e injetado automaticamente pelo GitLab em todo job - da
+    # acesso ao backend HTTP do Terraform state deste mesmo projeto, sem
+    # precisar cadastrar nenhuma credencial manual em CI/CD Variables.
+    - terraform init -input=false -backend-config="username=gitlab-ci-token" -backend-config="password=${CI_JOB_TOKEN}"
+
+# So sintaxe/formatacao - nao precisa do backend real nem do Proxmox.
+terraform-validate:
+  stage: validate
+  before_script:
+    - cd ${TF_ROOT}
+    - terraform init -backend=false -input=false
+  script:
+    - terraform fmt -check -recursive -diff
+    - terraform validate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# Roda em toda MR (preview do que vai mudar) e em todo push pra main. Precisa
+# do backend real (state compartilhado no GitLab) - existe desde que o state
+# foi migrado do arquivo local pro backend HTTP nativo do GitLab.
+terraform-plan:
+  stage: plan
+  script:
+    - terraform plan -input=false -out=tfplan
+  artifacts:
+    paths:
+      - ${TF_ROOT}/tfplan
+    expire_in: 1 day
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# Manual de proposito: so dispara na UI do GitLab, depois de olhar o plan.
+# Nao roda em MR (so faz sentido depois do merge, contra main).
+terraform-apply:
+  stage: apply
+  script:
+    - terraform apply -input=false tfplan
+  dependencies:
+    - terraform-plan
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
