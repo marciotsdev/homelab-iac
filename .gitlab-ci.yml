@@ -1,0 +1,23 @@
+stages:
+  - validate
+
+variables:
+  TF_ROOT: terraform/infra-base
+
+# So valida sintaxe/formatacao - nao roda plan nem apply. Rodar Terraform de
+# verdade contra o Proxmox exige um state compartilhado entre esta pipeline e
+# a maquina de controle (hoje o state e so local, fora do git) - isso ainda
+# nao foi decidido, entao apply continua manual por enquanto.
+terraform-validate:
+  stage: validate
+  image: hashicorp/terraform:1.9
+  tags:
+    - docker
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - cd ${TF_ROOT}
+    - terraform fmt -check -recursive -diff
+    - terraform init -backend=false -input=false
+    - terraform validate

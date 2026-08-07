@@ -1,0 +1,36 @@
+name: Terraform validate
+
+# So checagem de formatacao/sintaxe (portfolio/CI de leitura). O runner do
+# GitHub Actions e cloud e nao alcanca o Proxmox (rede privada do lab), entao
+# plan/apply de verdade rodam so no GitLab CI (runner self-hosted na LAN).
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/infra-base
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.*"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (sem backend, sem credenciais)
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate
