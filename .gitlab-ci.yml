@@ -7,7 +7,12 @@ variables:
   TF_ROOT: terraform/infra-base
 
 default:
-  image: hashicorp/terraform:1.9
+  image:
+    name: hashicorp/terraform:1.9
+    # A imagem oficial tem o binario "terraform" como ENTRYPOINT - sem
+    # resetar isso, o GitLab tenta rodar o script via shell e ele vira
+    # argumento do terraform ("terraform sh -c ..."), que nao existe.
+    entrypoint: [""]
   tags:
     - docker
   before_script:

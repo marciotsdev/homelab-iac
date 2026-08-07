@@ -54,11 +54,11 @@ vms = {
   }
   localstack = {
     # MiniStack (emulador AWS) + StackPort
-    vm_id  = 2007
-    ip     = "192.168.15.56/24"
-    cores  = 2
-    memory = 4096
-    disk   = 21
+    vm_id       = 2007
+    ip          = "192.168.15.56/24"
+    cores       = 2
+    memory      = 4096
+    disk        = 21
     dns_servers = ["192.168.15.1"]
     ssh_keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
@@ -87,12 +87,12 @@ vms = {
     # Runners de CI em containers (runner-infra shell + runner-docker)
     # Memoria subida de 4096 pra 8192 em 2026-08-07: VM alarmava uso de
     # memoria (3.61GB de 4GB) mesmo so com os dois runners + docker.
-    vm_id   = 2009
-    ip      = "192.168.15.58/24"
-    cores   = 2
-    memory  = 8192
-    disk    = 21
-    on_boot = true
+    vm_id       = 2009
+    ip          = "192.168.15.58/24"
+    cores       = 2
+    memory      = 8192
+    disk        = 21
+    on_boot     = true
     dns_servers = ["192.168.15.1"]
     ssh_keys = [
       # Faltava esta chave (unica diferenca deste bloco pras demais VMs) — sem
