@@ -29,11 +29,36 @@
     gitlab_root_password: "{{ lookup('password', gitlab_secrets_dir + '/gitlab_root_password length=24 chars=ascii_letters,digits') }}"
   no_log: true
 
+- name: Read keycloak client secret for gitlab SSO
+  set_fact:
+    gitlab_keycloak_client_secret: "{{ lookup('file', gitlab_secrets_dir + '/gitlab_keycloak_client_secret') }}"
+  no_log: true
+
 - name: Create GitLab stack directory
   file:
     path: "{{ gitlab_dir }}"
     state: directory
     mode: "0755"
+  become: true
+
+- name: Ensure GitLab trusted-certs directory exists
+  file:
+    path: "{{ gitlab_dir }}/config/trusted-certs"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Trust the k8s-mgmt Caddy CA (needed for the Keycloak OIDC discovery)
+  # Mesmo motivo do Backstage: o Caddy do k8s-mgmt roda "tls internal" (CA
+  # propria por VM); sem confiar nela, o cliente HTTP do Ruby (usado pelo
+  # omniauth-openid-connect no discovery) falha a verificacao TLS. O Omnibus
+  # GitLab confia automaticamente em qualquer .crt/.pem colocado aqui,
+  # aplicado no proximo "gitlab-ctl reconfigure" (roda sozinho no boot do
+  # container).
+  copy:
+    src: keycloak-ca.crt
+    dest: "{{ gitlab_dir }}/config/trusted-certs/keycloak-ca.crt"
+    mode: "0644"
   become: true
 
 - name: Template docker-compose.yml

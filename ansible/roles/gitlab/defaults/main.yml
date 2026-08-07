@@ -10,3 +10,8 @@ gitlab_secrets_dir: "{{ playbook_dir }}/../secrets"
 # Espera ate o GitLab responder; a primeira subida leva alguns minutos.
 gitlab_ready_retries: 60
 gitlab_ready_delay: 15
+
+# SSO via Keycloak — client "gitlab" no realm compartilhado (keycloak_realm,
+# ver group_vars/all/main.yml). Login local (root/admin) continua disponivel
+# junto do botao do Keycloak — sem auto_sign_in_with_provider de proposito.
+gitlab_keycloak_client_id: gitlab

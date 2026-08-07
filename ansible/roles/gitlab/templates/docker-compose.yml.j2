@@ -9,6 +9,31 @@ services:
         external_url 'http://{{ gitlab_external_host }}:{{ gitlab_http_port }}'
         gitlab_rails['gitlab_shell_ssh_port'] = {{ gitlab_ssh_port }}
         gitlab_rails['initial_root_password'] = '{{ gitlab_root_password }}'
+        # SSO via Keycloak — login local (root/admin) continua disponivel,
+        # o botao do Keycloak so se soma a ele (sem auto_sign_in_with_provider).
+        gitlab_rails['omniauth_enabled'] = true
+        gitlab_rails['omniauth_allow_single_sign_on'] = ['openid_connect']
+        gitlab_rails['omniauth_block_auto_created_users'] = false
+        gitlab_rails['omniauth_providers'] = [
+          {
+            name: "openid_connect",
+            label: "Keycloak",
+            args: {
+              name: "openid_connect",
+              scope: ["openid","profile","email"],
+              response_type: "code",
+              issuer: "{{ keycloak_base_url }}/realms/{{ keycloak_realm }}",
+              discovery: true,
+              client_auth_method: "query",
+              uid_field: "preferred_username",
+              client_options: {
+                identifier: "{{ gitlab_keycloak_client_id }}",
+                secret: "{{ gitlab_keycloak_client_secret }}",
+                redirect_uri: "http://{{ gitlab_external_host }}:{{ gitlab_http_port }}/users/auth/openid_connect/callback"
+              }
+            }
+          }
+        ]
     ports:
       - '{{ gitlab_http_port }}:{{ gitlab_http_port }}'
       - '{{ gitlab_ssh_port }}:22'
