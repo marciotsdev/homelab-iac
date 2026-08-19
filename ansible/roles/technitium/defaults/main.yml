@@ -1,0 +1,25 @@
+---
+technitium_dir: /opt/technitium
+technitium_web_port: 5380
+technitium_secrets_dir: "{{ playbook_dir }}/../secrets"
+technitium_zone: lab
+
+# Registros A da zona "lab" - um por servico ja existente no homelab-iac e no
+# homelab-gitops (ver terraform.tfvars dos dois repos pros IPs reais).
+# Estender aqui conforme novos servicos/VMs entrarem no lab.
+technitium_records:
+  awx: "192.168.15.50"
+  gitea: "192.168.15.52"
+  containers: "192.168.15.53"
+  client: "192.168.15.54"
+  backstage: "192.168.15.55"
+  localstack: "192.168.15.56"
+  gitlab: "192.168.15.57"
+  gitlab-runners: "192.168.15.58"
+  keycloak-infisical: "192.168.15.59"
+  k8s-dev: "192.168.15.60"
+  k8s-prd: "192.168.15.61"
+  crossplane: "192.168.15.62"
+  elk: "192.168.15.63"
+  defectdojo: "192.168.15.64"
+  dns: "192.168.15.65"

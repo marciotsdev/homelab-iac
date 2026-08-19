@@ -304,8 +304,8 @@
     state: absent
   become: true
 
-- name: Copy the k8s-mgmt Caddy internal CA (needed to trust the Keycloak endpoint)
-  # O Caddy do k8s-mgmt roda "tls internal" (CA propria, gerada localmente —
+- name: Copy the keycloak-infisical Caddy internal CA (needed to trust the Keycloak endpoint)
+  # O Caddy do keycloak-infisical roda "tls internal" (CA propria, gerada localmente —
   # diferente da CA do Caddy do proprio Backstage). Sem confiar nela, o
   # Node.js do backend falha o discovery OIDC do Keycloak com "unable to get
   # local issuer certificate". Certificado de CA raiz: publico por natureza,

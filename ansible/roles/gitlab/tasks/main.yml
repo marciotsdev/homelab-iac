@@ -48,8 +48,8 @@
     mode: "0755"
   become: true
 
-- name: Trust the k8s-mgmt Caddy CA (needed for the Keycloak OIDC discovery)
-  # Mesmo motivo do Backstage: o Caddy do k8s-mgmt roda "tls internal" (CA
+- name: Trust the keycloak-infisical Caddy CA (needed for the Keycloak OIDC discovery)
+  # Mesmo motivo do Backstage: o Caddy do keycloak-infisical roda "tls internal" (CA
   # propria por VM); sem confiar nela, o cliente HTTP do Ruby (usado pelo
   # omniauth-openid-connect no discovery) falha a verificacao TLS. O Omnibus
   # GitLab confia automaticamente em qualquer .crt/.pem colocado aqui,

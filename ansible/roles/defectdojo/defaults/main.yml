@@ -1,0 +1,16 @@
+---
+# Tag fixada (nao "master"), mesmo padrao do elk_repo_version - conferir tags
+# novas em github.com/DefectDojo/django-DefectDojo/releases.
+defectdojo_repo_url: https://github.com/DefectDojo/django-DefectDojo.git
+defectdojo_repo_version: "3.2.100"
+defectdojo_dir: /opt/defectdojo
+defectdojo_secrets_dir: "{{ playbook_dir }}/../secrets"
+
+defectdojo_port: 8080
+defectdojo_admin_user: admin
+defectdojo_admin_mail: "marcio@homelab.local"
+defectdojo_admin_first_name: Marcio
+defectdojo_admin_last_name: Homelab
+# "*" e o default do proprio docker-compose.yml; travado pro IP real da VM +
+# localhost (usado internamente pelos containers uwsgi/nginx).
+defectdojo_allowed_hosts: "{{ ansible_host }},localhost,127.0.0.1"

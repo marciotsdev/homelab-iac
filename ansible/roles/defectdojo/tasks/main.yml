@@ -1,0 +1,125 @@
+---
+- name: Install docker (pacotes Ubuntu)
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure docker is enabled and running
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: true
+  become: true
+
+# Imagens oficiais publicadas no Docker Hub (defectdojo/defectdojo-django,
+# defectdojo/defectdojo-nginx) - clona o repo so pelo docker-compose.yml e
+# pelos overrides, sem precisar buildar nada localmente (mais rapido que o
+# docker-elk, que nao publica imagem pronta).
+- name: Clonar o django-DefectDojo (tag fixada)
+  git:
+    repo: "{{ defectdojo_repo_url }}"
+    dest: "{{ defectdojo_dir }}"
+    version: "{{ defectdojo_repo_version }}"
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ defectdojo_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+# Os defaults do docker-compose.yml upstream sao segredos PUBLICOS (aparecem
+# no proprio repo, ex. DD_SECRET_KEY=hhZCp@D28z...) - gerar valores reais uma
+# unica vez e persistir (lookup rele o arquivo se ja existir, mesmo padrao do
+# papel elk).
+- name: Generate/read os segredos do DefectDojo (control node, idempotente)
+  set_fact:
+    defectdojo_secret_key: "{{ lookup('password', defectdojo_secrets_dir + '/defectdojo_secret_key length=50 chars=ascii_letters,digits') }}"
+    defectdojo_credential_aes_key: "{{ lookup('password', defectdojo_secrets_dir + '/defectdojo_credential_aes_key length=32 chars=ascii_letters,digits') }}"
+    defectdojo_db_password: "{{ lookup('password', defectdojo_secrets_dir + '/defectdojo_db_password length=24 chars=ascii_letters,digits') }}"
+    defectdojo_admin_password: "{{ lookup('password', defectdojo_secrets_dir + '/defectdojo_admin_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Check se a inicializacao do banco ja rodou antes (marker)
+  stat:
+    path: "{{ defectdojo_dir }}/.init-done"
+  register: defectdojo_init_marker
+
+# DD_CREDENTIAL_AES_256_KEY nao pode mudar depois do primeiro boot sem perder
+# acesso a credenciais ja armazenadas (integracoes com ferramentas, JIRA
+# etc.) - por isso o segredo persiste em arquivo (lookup) e o .env so e
+# retemplatizado com o MESMO valor daqui pra frente.
+- name: Template the .env file (segredos reais no lugar dos defaults publicos)
+  template:
+    src: env.j2
+    dest: "{{ defectdojo_dir }}/.env"
+    mode: "0600"
+  become: true
+  no_log: true
+  vars:
+    defectdojo_initialize: "{{ (not defectdojo_init_marker.stat.exists) | lower }}"
+
+- name: Pull as imagens do DefectDojo (dockerhub, sem build local)
+  command: docker compose pull
+  args:
+    chdir: "{{ defectdojo_dir }}"
+  become: true
+  changed_when: false
+
+- name: Subir a stack (postgres, valkey, uwsgi, celery, nginx)
+  command: docker compose up -d
+  args:
+    chdir: "{{ defectdojo_dir }}"
+  become: true
+  register: defectdojo_up
+  changed_when: "'Started' in defectdojo_up.stderr or 'Created' in defectdojo_up.stderr or 'Running' in defectdojo_up.stderr"
+
+- name: Wait for o DefectDojo (nginx) responder
+  uri:
+    url: "http://localhost:{{ defectdojo_port }}/login"
+    status_code: [200, 302]
+  register: defectdojo_ready
+  until: defectdojo_ready.status in [200, 302]
+  retries: 30
+  delay: 10
+
+# So roda na primeira inicializacao (mesmo marker do DD_INITIALIZE acima) -
+# troca a senha auto-gerada pelo initializer pela senha real persistida em
+# defectdojo_secrets_dir, pra nao depender de raspar log de container.
+- name: Set a senha real do admin (so na primeira inicializacao)
+  command: >-
+    docker compose exec -T uwsgi ./manage.py shell -c
+    "from django.contrib.auth.models import User; u = User.objects.get(username='{{ defectdojo_admin_user }}'); u.set_password('{{ defectdojo_admin_password }}'); u.save()"
+  args:
+    chdir: "{{ defectdojo_dir }}"
+  become: true
+  when: not defectdojo_init_marker.stat.exists
+  no_log: true
+
+- name: Marcar a inicializacao como concluida
+  file:
+    path: "{{ defectdojo_dir }}/.init-done"
+    state: touch
+    mode: "0600"
+  become: true
+  when: not defectdojo_init_marker.stat.exists
+
+- name: Show what was installed
+  debug:
+    msg: >-
+      DefectDojo pronto em {{ inventory_hostname }} — http://{{ ansible_host }}:{{ defectdojo_port }}
+      (usuario {{ defectdojo_admin_user }}, senha em {{ defectdojo_secrets_dir }}/defectdojo_admin_password).

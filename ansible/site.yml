@@ -23,6 +23,14 @@
   roles:
     - gitlab_runners
 
+# Observabilidade do lab (Elasticsearch + Logstash + Kibana). TLS/Caddy e a
+# integracao com o Keycloak (oauth2-proxy) ficam pra uma fase seguinte.
+- name: ELK (observabilidade)
+  hosts: elk
+  gather_facts: true
+  roles:
+    - elk
+
 - name: MiniStack (local AWS emulator)
   hosts: localstack
   gather_facts: true
@@ -53,6 +61,34 @@
       caddy_sites:
         - address: "https://{{ hostvars['backstage'].ansible_host }}"
           upstream: "127.0.0.1:{{ backstage_port }}"
+
+# Dashboard de compliance/auditoria pros achados de scan (gitleaks/trivy, ver
+# root/lab-ops ci-templates/scan.yml). TLS na frente pelo mesmo motivo de
+# sempre (evitar credencial/relatorio de vulnerabilidade trafegando em http).
+- name: DefectDojo (compliance/auditoria)
+  hosts: defectdojo
+  gather_facts: true
+  roles:
+    - defectdojo
+    - role: caddy
+      caddy_sites:
+        - address: "https://{{ hostvars['defectdojo'].ansible_host }}"
+          upstream: "127.0.0.1:{{ defectdojo_port }}"
+
+# DNS interno do lab (Technitium) - zona "lab" com registro pra cada servico
+# ja existente (ver defaults/main.yml do papel). Pre-requisito do FQDN que o
+# Uyuni vai precisar; a frota so passa a USAR esse resolver depois de validar
+# a resolucao manualmente (dns_servers do resto das VMs continua no roteador
+# por enquanto - troca planejada como proximo passo, nao automatica aqui).
+- name: DNS interno (Technitium)
+  hosts: dns
+  gather_facts: true
+  roles:
+    - technitium
+    - role: caddy
+      caddy_sites:
+        - address: "https://{{ hostvars['dns'].ansible_host }}"
+          upstream: "127.0.0.1:{{ technitium_web_port }}"
 
 # Jenkins foi aposentado em jul/2026 (CI migrado para o GitLab). A VM continua
 # preservada; o papel so roda sob demanda, para nao ressuscitar a esteira antiga.

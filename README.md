@@ -29,6 +29,10 @@ Infrastructure-as-code for a CI/CD homelab running on a single Proxmox node. Ter
                      ┌────────────┐
                      │ Backstage  │  catalog/portal (behind Caddy TLS),
                      └────────────┘  reads catalog-info from GitLab
+
+                     ┌────────────┐
+                     │    ELK     │  observability (logs from the VMs above
+                     └────────────┘  and from the k8s clusters in homelab-gitops)
 ```
 
 ## VMs
@@ -43,6 +47,7 @@ Infrastructure-as-code for a CI/CD homelab running on a single Proxmox node. Ter
 | localstack | 2007 | MiniStack (local AWS emulator) + StackPort UI | no |
 | gitlab | 2008 | GitLab CE — git + CI (docker compose) | **yes** |
 | gitlab-runners | 2009 | CI runners as containers (infra + docker) | **yes** |
+| elk | 2014 | Elasticsearch + Logstash + Kibana — observability (docker compose) | no |
 | ~~jenkins~~ | 2002 | retired — VM kept powered off, out of every routine | no |
 
 VMs tagged `lab` participate in the startup/shutdown pipelines (dynamic inventory). Only the git + CI trio auto-starts with the host; everything else is powered on demand.
@@ -54,7 +59,7 @@ Most VMs are cloned from an `ubuntu-2204-template` via the [bpg/proxmox](https:/
 ## Layout
 
 - `terraform/` — VM provisioning (`vms.tf`, `variables.tf`, `outputs.tf`). Credentials come from `PROXMOX_VE_*` environment variables, never from files in this repo. Power state is managed by the lab's GitLab pipelines, not Terraform (`ignore_changes = [started, clone]`).
-- `ansible/` — Configuration management. One role per service (`common`, `gitea`, `gitlab`, `gitlab_runners`, `ministack`, `containers`, `awx`, `backstage`, `caddy`, and the retired `jenkins`). All admin passwords/tokens are generated with Ansible's `password`/`file` lookups against a local, git-ignored `secrets/` directory — nothing is hardcoded.
+- `ansible/` — Configuration management. One role per service (`common`, `gitea`, `gitlab`, `gitlab_runners`, `ministack`, `containers`, `awx`, `backstage`, `caddy`, `elk`, and the retired `jenkins`). All admin passwords/tokens are generated with Ansible's `password`/`file` lookups against a local, git-ignored `secrets/` directory — nothing is hardcoded.
 
 ### Notes on the newer roles
 
@@ -62,6 +67,7 @@ Most VMs are cloned from an `ubuntu-2204-template` via the [bpg/proxmox](https:/
 - **`gitlab_runners`** creates the runner tokens by delegating to the GitLab host and prints the infra runner's public key; that key must be authorized on the Proxmox host with `command="/usr/local/bin/lab-ops-dispatch.sh",restrict` so the startup/shutdown pipelines can run — the one deliberately manual step.
 - **`caddy`** puts TLS in front of the Backstage VM (`tls internal`, since private IPs can't get a public certificate). This is not cosmetic: the Backstage frontend calls `crypto.randomUUID()`, which only exists in a secure context — served over plain HTTP the app dies on startup. Apply it alone with `ansible-playbook caddy-only.yml`.
 - **`jenkins`** only runs with `-e enable_legacy_jenkins true`; otherwise a full `site.yml` would resurrect the retired pipeline (the `gitea` role still re-templates the sample-app Jenkinsfile).
+- **`elk`** deploys [`docker-elk`](https://github.com/deviantony/docker-elk) (Elasticsearch + Logstash + Kibana) on its own VM. Elastic's auto-enabled 30-day trial license is disabled in favor of `basic` (non-expiring, no native OIDC SSO); Keycloak SSO for Kibana is planned via `oauth2-proxy` sitting in front of it, not yet wired up. TLS (Caddy) and the Filebeat rollout to the other VMs/k8s clusters are later phases.
 
 ## Usage
 

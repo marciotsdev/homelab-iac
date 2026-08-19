@@ -1,4 +1,10 @@
+include:
+  - project: 'root/lab-ops'
+    ref: main
+    file: '/ci-templates/scan.yml'
+
 stages:
+  - scan
   - validate
   - plan
   - apply
@@ -21,6 +27,15 @@ default:
     # acesso ao backend HTTP do Terraform state deste mesmo projeto, sem
     # precisar cadastrar nenhuma credencial manual em CI/CD Variables.
     - terraform init -input=false -backend-config="username=gitlab-ci-token" -backend-config="password=${CI_JOB_TOKEN}"
+
+# Os jobs de scan vem do template incluido (root/lab-ops) e nao devem herdar
+# o before_script padrao acima: eles escaneiam o repo inteiro (nao so o
+# Terraform) e rodam em imagens sem o binario terraform.
+gitleaks:
+  before_script: []
+
+trivy-fs:
+  before_script: []
 
 # So sintaxe/formatacao - nao precisa do backend real nem do Proxmox.
 terraform-validate:

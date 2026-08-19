@@ -102,10 +102,67 @@ vms = {
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJbotLXtaqwLd2a8vYRCOO3YbpMgIuMevYKhz9NoHJ4 root@pve",
     ]
   }
+  elk = {
+    # Observabilidade do lab (Elasticsearch + Logstash + Kibana, baseado em
+    # github.com/deviantony/docker-elk) — VM propria de proposito, mesmo
+    # padrao ja usado pra isolar componentes pesados (Crossplane). Coleta
+    # logs das VMs do homelab-iac (Filebeat) e dos clusters k3s do
+    # homelab-gitops (Filebeat DaemonSet), nas fases seguintes.
+    vm_id       = 2014
+    ip          = "192.168.15.63/24"
+    cores       = 6
+    memory      = 18432
+    disk        = 60
+    on_boot     = true
+    dns_servers = ["192.168.15.1"]
+    ssh_keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJbotLXtaqwLd2a8vYRCOO3YbpMgIuMevYKhz9NoHJ4 root@pve",
+    ]
+  }
+  defectdojo = {
+    # Dashboard de compliance/auditoria pros achados do gitleaks/trivy (scan
+    # de CI, ver root/lab-ops ci-templates/scan.yml) - consolida findings,
+    # dedup, SLA de remediacao, relatorios exportaveis pra auditoria.
+    vm_id       = 2015
+    ip          = "192.168.15.64/24"
+    cores       = 4
+    memory      = 8192
+    disk        = 60
+    on_boot     = true
+    dns_servers = ["192.168.15.1"]
+    ssh_keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJbotLXtaqwLd2a8vYRCOO3YbpMgIuMevYKhz9NoHJ4 root@pve",
+    ]
+  }
+  dns = {
+    # Technitium DNS Server - DNS interno do lab (zona "lab", ex.: gitlab.lab,
+    # backstage.lab), pre-requisito pro FQDN que o Uyuni vai precisar (ver
+    # docs/hardening.md e a nota de planejamento do Uyuni). VM leve de proposito
+    # - so serve resolucao pra frota, nada pesado.
+    vm_id       = 2016
+    ip          = "192.168.15.65/24"
+    cores       = 4
+    memory      = 4096
+    disk        = 20
+    on_boot     = true
+    dns_servers = ["192.168.15.1"]
+    ssh_keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJbotLXtaqwLd2a8vYRCOO3YbpMgIuMevYKhz9NoHJ4 root@pve",
+    ]
+  }
 }
 
 # Nota: os clusters Kubernetes (ArgoCD + Crossplane) vivem no projeto separado
 # homelab-gitops, com state proprio. Ver github.com/marciotsdev/homelab-gitops.
 
-
-template_vm_id = 1001
+# Trocado de 1001 (ISO manual, cloud-init quebrado) para 9000 (cloud image
+# oficial, ide2 cloudinit real) em 2026-08-10. So afeta VMs criadas a partir
+# de agora; as ja existentes (clonadas do 1001) ficam pra uma recriacao em
+# lote planejada a parte. Ver docs/armadilhas.md.
+template_vm_id = 9000

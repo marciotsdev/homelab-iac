@@ -1,0 +1,156 @@
+---
+# O template 1001 ja vem com o Docker do repositorio oficial instalado
+# (docker-ce/containerd.io/docker-compose-plugin). Instalar docker.io por
+# cima gera conflito de arquivo (docker-compose-plugin vs docker-compose-v2
+# disputando o mesmo binario) - mesmo bug ja visto nas VMs 2008 e 2009.
+# Purgar antes evita o conflito.
+- name: Purge o Docker do repositorio oficial (conflito conhecido do template 1001)
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-ce-rootless-extras
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: absent
+    purge: true
+  become: true
+
+- name: Remover o repositorio apt oficial do Docker
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/docker.list
+    - /etc/apt/sources.list.d/docker.list.save
+  become: true
+
+- name: Install docker (pacotes Ubuntu)
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure docker is enabled and running
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+# O docker-elk nao publica imagem pronta - o compose faz build de 4
+# Dockerfiles locais (elasticsearch/logstash/kibana/setup), entao precisa do
+# repositorio inteiro na VM, nao so o docker-compose.yml.
+- name: Clonar o docker-elk (tag fixada)
+  git:
+    repo: "{{ elk_repo_url }}"
+    dest: "{{ elk_dir }}"
+    version: "{{ elk_repo_version }}"
+  become: true
+
+# O elasticsearch.yml do repo vem com self_generated.type=trial (libera OIDC
+# nativo por 30 dias, uma unica vez, sem renovacao). Decisao do usuario: nunca
+# deixar o trial comecar - a integracao com o Keycloak vai ser via oauth2-proxy
+# na frente do Kibana em vez do OIDC nativo do Elastic.
+- name: Desabilitar o trial auto-gerado do Elastic (basic em vez de trial)
+  replace:
+    path: "{{ elk_dir }}/elasticsearch/config/elasticsearch.yml"
+    regexp: "^xpack\\.license\\.self_generated\\.type: trial$"
+    replace: "xpack.license.self_generated.type: basic"
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ elk_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+# O .env do docker-elk vem com "changeme"/vazio, feito pra editar a mao. Aqui
+# geramos valores reais uma unica vez (o lookup persiste no arquivo - rodar
+# de novo le o que ja existe em vez de gerar outro).
+- name: Generate/read the ELK internal user passwords (control node, idempotente)
+  set_fact:
+    elk_elastic_password: "{{ lookup('password', elk_secrets_dir + '/elk_elastic_password length=24 chars=ascii_letters,digits') }}"
+    elk_logstash_internal_password: "{{ lookup('password', elk_secrets_dir + '/elk_logstash_internal_password length=24 chars=ascii_letters,digits') }}"
+    elk_kibana_system_password: "{{ lookup('password', elk_secrets_dir + '/elk_kibana_system_password length=24 chars=ascii_letters,digits') }}"
+    elk_filebeat_internal_password: "{{ lookup('password', elk_secrets_dir + '/elk_filebeat_internal_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Template the .env file (senhas reais no lugar dos "changeme")
+  template:
+    src: env.j2
+    dest: "{{ elk_dir }}/.env"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Build as imagens do ELK (elasticsearch/logstash/kibana/setup)
+  command: docker compose build
+  args:
+    chdir: "{{ elk_dir }}"
+  become: true
+  changed_when: false
+
+- name: Check if the setup bootstrap already ran
+  stat:
+    path: "{{ elk_dir }}/.setup-done"
+  register: elk_setup_marker
+
+# So roda uma vez: reexecutar reseta as senhas dos usuarios internos do
+# Elasticsearch pro valor do .env. Inofensivo aqui (o .env sempre tem a senha
+# real persistida), mas nao ha motivo pra rodar de novo toda vez.
+- name: Run o bootstrap do setup (inicializa usuarios/roles no Elasticsearch)
+  command: docker compose --profile setup run --rm setup
+  args:
+    chdir: "{{ elk_dir }}"
+  become: true
+  when: not elk_setup_marker.stat.exists
+  no_log: true
+
+- name: Marcar o bootstrap do setup como concluido
+  file:
+    path: "{{ elk_dir }}/.setup-done"
+    state: touch
+    mode: "0600"
+  become: true
+  when: not elk_setup_marker.stat.exists
+
+- name: Subir a stack (elasticsearch, logstash, kibana)
+  command: docker compose up -d
+  args:
+    chdir: "{{ elk_dir }}"
+  become: true
+  register: elk_up
+  changed_when: "'Started' in elk_up.stderr or 'Created' in elk_up.stderr or 'Running' in elk_up.stderr"
+
+- name: Wait for Elasticsearch to respond
+  uri:
+    url: "http://localhost:9200"
+    status_code: [200, 401]
+  register: elk_es_ready
+  until: elk_es_ready.status in [200, 401]
+  retries: 30
+  delay: 10
+
+- name: Wait for Kibana to respond
+  uri:
+    url: "http://localhost:5601/api/status"
+    status_code: [200, 401, 503]
+  register: elk_kibana_ready
+  until: elk_kibana_ready.status in [200, 401]
+  retries: 30
+  delay: 10
+
+- name: Show what was installed
+  debug:
+    msg: >-
+      ELK pronto em {{ inventory_hostname }} — Elasticsearch http://{{ ansible_host }}:9200,
+      Kibana http://{{ ansible_host }}:5601 (usuario elastic, senha em
+      {{ elk_secrets_dir }}/elk_elastic_password).

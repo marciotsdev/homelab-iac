@@ -1,0 +1,13 @@
+services:
+  dns-server:
+    image: technitium/dns-server:latest
+    container_name: technitium-dns
+    restart: unless-stopped
+    # network_mode host: e um servidor DNS de proposito unico (porta 53
+    # tcp/udp precisa responder no IP real da VM, nao atras de NAT do docker)
+    network_mode: host
+    environment:
+      DNS_SERVER_ADMIN_PASSWORD: "{{ technitium_admin_password }}"
+      DNS_SERVER_DOMAIN: "{{ inventory_hostname }}"
+    volumes:
+      - "{{ technitium_dir }}/config:/etc/dns"

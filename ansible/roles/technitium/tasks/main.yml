@@ -1,0 +1,161 @@
+---
+- name: Install docker (pacotes Ubuntu)
+  apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure docker is enabled and running
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: true
+  become: true
+
+- name: Ensure a pasta de dados existe
+  file:
+    path: "{{ technitium_dir }}/config"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ technitium_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+# Senha real gerada uma unica vez e persistida (mesmo padrao do papel
+# defectdojo/elk) - so tem efeito no primeiro start do container (volume de
+# config vazio); reaplicar depois disso e inofensivo, o Technitium ignora.
+- name: Generate/read a senha de admin (control node, idempotente)
+  set_fact:
+    technitium_admin_password: "{{ lookup('password', technitium_secrets_dir + '/technitium_admin_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Template o docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ technitium_dir }}/docker-compose.yml"
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Pull a imagem do Technitium
+  command: docker compose pull
+  args:
+    chdir: "{{ technitium_dir }}"
+  become: true
+  changed_when: false
+
+- name: Subir o container
+  command: docker compose up -d
+  args:
+    chdir: "{{ technitium_dir }}"
+  become: true
+  register: technitium_up
+  changed_when: "'Started' in technitium_up.stderr or 'Created' in technitium_up.stderr or 'Running' in technitium_up.stderr"
+
+- name: Wait for o console web responder
+  uri:
+    url: "http://localhost:{{ technitium_web_port }}/api/user/session/get?token=x"
+    status_code: [200, 401]
+  register: technitium_ready
+  until: technitium_ready.status in [200, 401]
+  retries: 30
+  delay: 10
+
+- name: Login na API (obter token de sessao)
+  uri:
+    url: "http://localhost:{{ technitium_web_port }}/api/user/login"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      user: admin
+      pass: "{{ technitium_admin_password }}"
+      includeInfo: false
+    status_code: [200]
+  register: technitium_login
+  no_log: true
+
+- name: Guardar o token de sessao
+  set_fact:
+    technitium_token: "{{ technitium_login.json.token }}"
+  no_log: true
+
+- name: Criar a zona "{{ technitium_zone }}" (Primary)
+  uri:
+    url: "http://localhost:{{ technitium_web_port }}/api/zones/create"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      zone: "{{ technitium_zone }}"
+      type: Primary
+      token: "{{ technitium_token }}"
+    status_code: [200]
+  register: technitium_zone_create
+  failed_when: >-
+    ((technitium_zone_create.json.status == 'error') and
+    ('already exists' not in (technitium_zone_create.json.errorMessage | default('')))) | bool
+  no_log: true
+
+- name: Adicionar os registros A da zona
+  uri:
+    url: "http://localhost:{{ technitium_web_port }}/api/zones/records/add"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      zone: "{{ technitium_zone }}"
+      domain: "{{ item.key }}.{{ technitium_zone }}"
+      type: A
+      ipAddress: "{{ item.value }}"
+      ttl: 3600
+      token: "{{ technitium_token }}"
+    status_code: [200]
+  loop: "{{ technitium_records | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}.{{ technitium_zone }} -> {{ item.value }}"
+  register: technitium_records_add
+  no_log: true
+
+# Checagem feita numa task separada e NAO loopada, de proposito: failed_when
+# numa task com loop+register bate num bug real do Ansible aqui
+# ("unsupported operand type(s) for |=: 'bool' and 'AnsibleUnsafeText'",
+# reproduzido com string E com lista de condicoes, com e sem "| bool" - bug
+# do core, nao da nossa sintaxe). Processar os .results inteiros de uma vez
+# com selectattr/rejectattr evita esse caminho por completo.
+- name: Falhar se algum registro deu erro real (fora "already exists")
+  fail:
+    msg: >-
+      Falha ao criar registros DNS: {{ technitium_records_add.results
+      | selectattr('json.status', 'defined')
+      | selectattr('json.status', 'equalto', 'error')
+      | rejectattr('json.errorMessage', 'search', 'already exists')
+      | map(attribute='item.key') | list }}
+  when: >-
+    (technitium_records_add.results
+    | selectattr('json.status', 'defined')
+    | selectattr('json.status', 'equalto', 'error')
+    | rejectattr('json.errorMessage', 'search', 'already exists')
+    | list | length) > 0
+
+- name: Show what was installed
+  debug:
+    msg: >-
+      Technitium pronto em {{ inventory_hostname }} —
+      console em http://{{ ansible_host }}:{{ technitium_web_port }}
+      (usuario admin, senha em {{ technitium_secrets_dir }}/technitium_admin_password),
+      zona "{{ technitium_zone }}" com {{ technitium_records | length }} registros A.

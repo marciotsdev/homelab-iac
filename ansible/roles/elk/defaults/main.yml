@@ -1,0 +1,8 @@
+---
+# Tag fixada (nao "main") pra reprodutibilidade - mesmo padrao ja usado pro
+# helm_version/crossplane_provider_version. Conferir tags novas em
+# github.com/deviantony/docker-elk/tags.
+elk_repo_url: https://github.com/deviantony/docker-elk.git
+elk_repo_version: "9.2511.1"   # ELASTIC_VERSION=9.2.0
+elk_dir: /opt/elk
+elk_secrets_dir: "{{ playbook_dir }}/../secrets"

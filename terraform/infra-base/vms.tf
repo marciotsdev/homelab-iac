@@ -60,7 +60,11 @@ resource "proxmox_virtual_environment_vm" "this" {
 
       user_account {
         username = var.vm_user
-        keys     = coalesce(each.value.ssh_keys, [trimspace(file(pathexpand(var.ssh_public_key_path)))])
+        # coalesce() avalia os dois argumentos (HCL nao e lazy) - sem o
+        # try(), o file() quebra o plan sempre que essa chave default nao
+        # existir (ex.: runner de CI, que nao tem ~/.ssh local), mesmo
+        # quando each.value.ssh_keys ja teria resolvido a chamada.
+        keys = coalesce(each.value.ssh_keys, try([trimspace(file(pathexpand(var.ssh_public_key_path)))], []))
       }
     }
   }
