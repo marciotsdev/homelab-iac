@@ -1,0 +1,138 @@
+---
+# openSUSE Tumbleweed (zypper/podman), diferente do resto da frota (Ubuntu +
+# apt/docker) - primeira VM SUSE-based do lab. Base escolhida no lugar do SL
+# Micro 6.2 originalmente cogitado: SL Micro exige conta + codigos de
+# registro no SUSE Customer Center so pra baixar a imagem; Tumbleweed e a
+# base community validada oficialmente pelo projeto Uyuni desde a 2025.10,
+# sem essa friccao (ver docs/armadilhas.md).
+
+- name: Check if the Uyuni Server repository is already added
+  command: zypper lr uyuni-server-stable
+  register: uyuni_repo_check
+  changed_when: false
+  failed_when: false
+
+- name: Add the Uyuni Server repository
+  command: zypper --non-interactive ar {{ uyuni_repo_url }} uyuni-server-stable
+  become: true
+  when: uyuni_repo_check.rc != 0
+
+- name: Refresh repositories (import the Uyuni GPG key automatically)
+  command: zypper --non-interactive --gpg-auto-import-keys ref
+  become: true
+  changed_when: false
+
+- name: Check if mgradm is already installed
+  command: rpm -q mgradm
+  register: uyuni_mgradm_check
+  changed_when: false
+  failed_when: false
+
+- name: Install mgradm, mgrctl, the bootstrap-repo tool and podman
+  command: zypper --non-interactive in mgradm mgrctl uyuni-storage-setup-server podman
+  become: true
+  when: uyuni_mgradm_check.rc != 0
+
+- name: Ensure podman socket is enabled and running
+  systemd:
+    name: podman.socket
+    enabled: true
+    state: started
+  become: true
+
+- name: Ensure local secrets directory exists (control node)
+  file:
+    path: "{{ uyuni_secrets_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate/read the Uyuni secrets (control node, idempotente)
+  set_fact:
+    uyuni_admin_password: "{{ lookup('password', uyuni_secrets_dir + '/uyuni_admin_password length=24 chars=ascii_letters,digits') }}"
+    uyuni_db_password: "{{ lookup('password', uyuni_secrets_dir + '/uyuni_db_password length=24 chars=ascii_letters,digits') }}"
+    uyuni_ssl_password: "{{ lookup('password', uyuni_secrets_dir + '/uyuni_ssl_password length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+
+- name: Template the mgradm.yaml config (segredos - nunca versionado)
+  template:
+    src: mgradm.yaml.j2
+    dest: /root/mgradm.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Check if the Uyuni server container already exists
+  command: podman ps -a --filter name=uyuni-server --format {{ '{{' }}.Names{{ '}}' }}
+  become: true
+  register: uyuni_container_check
+  changed_when: false
+
+# mgradm faz o trabalho de verdade (schema do banco, certificado SSL, os dois
+# containers) em poucos minutos, mas fica preso depois disso num loop
+# infinito e inofensivo tentando checar a imagem do proxy-tftpd (nao pedida
+# aqui - nao passamos --tftpd-enable) - bug conhecido do mgradm 5.3.1 nessa
+# combinacao (validado ao vivo em 19 ago 2026). Por isso roda com
+# async/poll=0 (dispara e nao espera): a task seguinte espera o container
+# ficar saudavel de verdade, que e o sinal real de conclusao - nao o processo
+# do mgradm terminar sozinho.
+- name: Install the Uyuni server (mgradm) - dispara em background
+  command: mgradm -c /root/mgradm.yaml install podman {{ uyuni_fqdn }}
+  become: true
+  async: 1800
+  poll: 0
+  when: uyuni_container_check.stdout == ""
+
+- name: Wait for the server container to become healthy
+  command: podman inspect --format {{ '{{' }}.State.Health.Status{{ '}}' }} uyuni-server
+  become: true
+  register: uyuni_health
+  until: uyuni_health.rc == 0 and uyuni_health.stdout == "healthy"
+  retries: 60
+  delay: 15
+  changed_when: false
+  when: uyuni_container_check.stdout == ""
+
+- name: Kill any mgradm process still stuck after the container is healthy
+  command: pkill -f "mgradm -c /root/mgradm.yaml"
+  become: true
+  failed_when: false
+  changed_when: false
+  when: uyuni_container_check.stdout == ""
+
+# Ferramenta idempotente por design (ignora canal/chave ja existente) -
+# seguro rodar em toda execucao do papel. Sem isso nenhuma frota consegue
+# fazer bootstrap (o mgr-create-bootstrap-repo depende do canal
+# uyuni-client ter pacotes).
+- name: Criar os canais de pacote da frota Ubuntu + chave de ativacao
+  command: >
+    mgrctl exec -- spacewalk-common-channels -u {{ uyuni_admin_login }}
+    -p {{ uyuni_admin_password }} -k unlimited {{ uyuni_ubuntu_channels | join(' ') }}
+  become: true
+  changed_when: false
+  no_log: true
+
+# So reconstroi o repo se algum canal usado nele mudou desde a ultima vez -
+# "Nothing to do" e o caso comum (canal ainda sem pacotes sincronizados, ou
+# nada novo). O sync de pacotes em si (spacewalk-repo-sync) e pesado (GBs por
+# canal) e o Taskomatic do proprio Uyuni ja agenda sozinho pros canais
+# criados - nao repetido aqui de proposito.
+- name: Gerar o repositorio de bootstrap (auto, so reconstroi o que mudou)
+  command: mgrctl exec -- mgr-create-bootstrap-repo -a
+  become: true
+  changed_when: "'Nothing to do' not in uyuni_bootstrap_repo.stdout"
+  register: uyuni_bootstrap_repo
+  failed_when: false
+
+- name: Show how to reach Uyuni
+  debug:
+    msg: >-
+      Uyuni pronto em https://{{ uyuni_fqdn }} — usuario {{ uyuni_admin_login }},
+      senha em {{ uyuni_secrets_dir }}/uyuni_admin_password. O sync dos
+      pacotes Ubuntu (Taskomatic) e o repositorio de bootstrap podem levar
+      bastante tempo na primeira vez - reexecutar o papel depois resolve sem
+      acao manual, assim que o sync terminar.

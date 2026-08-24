@@ -44,7 +44,7 @@
 
 # Os defaults do docker-compose.yml upstream sao segredos PUBLICOS (aparecem
 # no proprio repo, ex. DD_SECRET_KEY=hhZCp@D28z...) - gerar valores reais uma
-# unica vez e persistir (lookup rele o arquivo se ja existir, mesmo padrao do
+# unica vez e persistir (lookup relê o arquivo se ja existir, mesmo padrao do
 # papel elk).
 - name: Generate/read os segredos do DefectDojo (control node, idempotente)
   set_fact:
