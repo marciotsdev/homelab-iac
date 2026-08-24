@@ -1,0 +1,4 @@
+---
+uyuni_client_fqdn: uyuni.lab
+uyuni_client_bootstrap_repo: "https://{{ uyuni_client_fqdn }}/pub/repositories/ubuntu/22/4/bootstrap"
+uyuni_client_activation_key: "1-ubuntu-22.04-pool-amd64-uyuni"

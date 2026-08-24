@@ -23,3 +23,4 @@ technitium_records:
   elk: "192.168.15.63"
   defectdojo: "192.168.15.64"
   dns: "192.168.15.65"
+  uyuni: "192.168.15.66"

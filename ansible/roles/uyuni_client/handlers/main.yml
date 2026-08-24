@@ -1,0 +1,12 @@
+---
+- name: update ca certificates
+  command: update-ca-certificates
+  become: true
+  listen: update ca certificates
+
+- name: restart venv-salt-minion
+  systemd:
+    name: venv-salt-minion
+    state: restarted
+  become: true
+  listen: restart venv-salt-minion

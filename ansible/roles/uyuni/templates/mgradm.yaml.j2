@@ -1,0 +1,20 @@
+email: {{ uyuni_email }}
+emailfrom: notifications@{{ uyuni_fqdn }}
+organization: {{ uyuni_organization }}
+
+admin:
+  login: {{ uyuni_admin_login }}
+  password: {{ uyuni_admin_password }}
+  firstName: {{ uyuni_admin_first_name }}
+  lastName: {{ uyuni_admin_last_name }}
+
+db:
+  password: {{ uyuni_db_password }}
+
+ssl:
+  password: {{ uyuni_ssl_password }}
+  org: {{ uyuni_organization }}
+  ou: {{ uyuni_organization }} Lab
+  country: BR
+  state: Rio de Janeiro
+  city: Homelab

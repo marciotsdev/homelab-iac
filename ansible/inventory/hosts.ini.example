@@ -8,6 +8,10 @@ backstage ansible_host=192.168.1.55
 localstack ansible_host=192.168.1.56
 gitlab ansible_host=192.168.1.57
 gitlab-runners ansible_host=192.168.1.58
+elk ansible_host=192.168.1.63
+defectdojo ansible_host=192.168.1.64
+dns ansible_host=192.168.1.65
+uyuni ansible_host=192.168.1.66
 
 [homelab:vars]
 ansible_user=ubuntu

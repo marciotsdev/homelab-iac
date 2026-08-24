@@ -1,0 +1,20 @@
+---
+uyuni_secrets_dir: "{{ playbook_dir }}/../secrets"
+uyuni_fqdn: uyuni.lab
+uyuni_repo_url: "https://download.opensuse.org/repositories/systemsmanagement:/Uyuni:/Stable/images/repo/Uyuni-Server-POOL-x86_64-Media1/"
+
+uyuni_admin_login: admin
+uyuni_admin_first_name: Marcio
+uyuni_admin_last_name: Homelab
+uyuni_email: marcio@homelab.local
+uyuni_organization: Homelab
+
+# Canais de pacote da frota (so Ubuntu 22.04 por enquanto - todo o resto do
+# homelab-iac clona do template cloud-init 9000, Ubuntu 22.04). Adicionar
+# outro par base/child aqui se um SO novo entrar na frota.
+uyuni_ubuntu_channels:
+  - ubuntu-2204-pool-amd64-uyuni
+  - ubuntu-2204-amd64-main-uyuni
+  - ubuntu-2204-amd64-main-updates-uyuni
+  - ubuntu-2204-amd64-main-security-uyuni
+  - ubuntu-2204-amd64-uyuni-client
