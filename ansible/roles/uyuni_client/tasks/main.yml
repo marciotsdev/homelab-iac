@@ -1,0 +1,123 @@
+---
+# Onboarding da frota como Salt minion do Uyuni, via Salt Bundle
+# (venv-salt-minion). Validado ao vivo na VM client antes de virar papel
+# (19 ago 2026) - dois detalhes reais que nao estavam obvios na doc oficial:
+#   1. o path do repo de bootstrap e /pub/repositories/ubuntu/<major>/<minor>/bootstrap,
+#      nao /pub/bootstrap/bootstrap-script.sh como a doc generica sugere -
+#      esse ultimo nem existe pra clientes Ubuntu/Debian.
+#   2. [trusted=yes] no apt so cobre a assinatura GPG dos pacotes, nao o TLS
+#      do proprio repo - sem confiar na CA do Uyuni (RHN-ORG-TRUSTED-SSL-CERT)
+#      o apt-get update falha com erro de certificado. E o apt so aceita o
+#      certificado se a URL usar o FQDN (uyuni.lab) que bate com o CN/SAN do
+#      certificado - por IP ele rejeita com "name does not match".
+
+- name: Baixar a CA do Uyuni (confianca inicial, ainda sem validar - e a propria CA)
+  get_url:
+    url: "https://{{ uyuni_client_fqdn }}/pub/RHN-ORG-TRUSTED-SSL-CERT"
+    dest: /usr/local/share/ca-certificates/uyuni-ca.crt
+    validate_certs: false
+    mode: "0644"
+  become: true
+  register: uyuni_client_ca
+  notify: update ca certificates
+
+- meta: flush_handlers
+
+- name: Adicionar o repositorio apt de bootstrap do Uyuni
+  copy:
+    dest: /etc/apt/sources.list.d/uyuni-bootstrap.list
+    content: "deb [trusted=yes] {{ uyuni_client_bootstrap_repo }} bootstrap main\n"
+    mode: "0644"
+  become: true
+  register: uyuni_client_repo
+
+- name: Atualizar os indices apt (so quando o repo mudou)
+  apt:
+    update_cache: true
+  become: true
+  when: uyuni_client_repo.changed or uyuni_client_ca.changed
+
+- name: Instalar o venv-salt-minion (Salt Bundle)
+  apt:
+    name: venv-salt-minion
+    state: present
+  become: true
+
+- name: Ensure o diretorio minion.d existe
+  file:
+    path: /etc/venv-salt-minion/minion.d
+    state: directory
+    mode: "0755"
+  become: true
+
+# O primeiro start do pacote (systemd preset) roda antes da task de config
+# abaixo e grava esse arquivo com o FQDN detectado automaticamente
+# (getfqdn()) - depois disso ele tem PRIORIDADE sobre o "id:" do
+# minion.d/*.conf em reinicializacoes seguintes. Sem apagar isso, gitlab e
+# gitlab-runners (cujo FQDN resolve diferente do hostname puro) ficam presos
+# pedindo aceite com o nome errado pra sempre (achado real, 19 ago 2026).
+- name: Ler o cache de minion_id, se existir
+  command: cat /etc/venv-salt-minion/minion_id
+  become: true
+  register: uyuni_client_cached_id
+  changed_when: false
+  failed_when: false
+
+- name: Remover o cache de minion_id, se nao bater com o inventory_hostname
+  file:
+    path: /etc/venv-salt-minion/minion_id
+    state: absent
+  become: true
+  when: uyuni_client_cached_id.stdout != inventory_hostname
+  notify: restart venv-salt-minion
+
+- name: Configurar o minion (master + chave de ativacao)
+  # id fixado explicitamente: por padrao o Salt usa getfqdn(), e pelo menos
+  # duas VMs da frota (gitlab, gitlab-runners) resolvem FQDN com sufixo
+  # diferente do hostname puro (ex. gitlab.homelab) - sem isso a chave
+  # pendente no master nao bate com o inventory_hostname usado pra aceitar
+  # ela na task seguinte (achado real, 19 ago 2026).
+  copy:
+    dest: /etc/venv-salt-minion/minion.d/uyuni.conf
+    content: |
+      id: {{ inventory_hostname }}
+      master: {{ uyuni_client_fqdn }}
+      grains:
+        susemanager:
+          activation_key: "{{ uyuni_client_activation_key }}"
+      server_id_use_crc: adler32
+      enable_legacy_startup_events: False
+      enable_fqdns_grains: False
+    mode: "0644"
+  become: true
+  notify: restart venv-salt-minion
+
+- meta: flush_handlers
+
+- name: Ensure venv-salt-minion esta habilitado e rodando
+  systemd:
+    name: venv-salt-minion
+    enabled: true
+    state: started
+  become: true
+
+# A chave so aparece pendente no master alguns segundos depois do primeiro
+# start/restart do minion - until/retries cobre essa corrida sem precisar de
+# um sleep fixo. Delegado direto pro host "uyuni" (host unico, sem grupo
+# proprio no inventario - groups['uyuni'] nao existe, so daria certo se fosse
+# um group header do INI, diferente do [k8s_mgmt] usado no argocd_clusters).
+- name: Aceitar a chave Salt deste host no servidor Uyuni
+  command: mgrctl exec -- salt-key -a {{ inventory_hostname }} -y
+  delegate_to: uyuni
+  become: true
+  register: uyuni_client_key_accept
+  until: uyuni_client_key_accept.rc == 0
+  retries: 6
+  delay: 10
+  changed_when: "'accepted' in uyuni_client_key_accept.stdout"
+  failed_when: false
+
+- name: Show onboarding status
+  debug:
+    msg: >-
+      {{ inventory_hostname }} — onboarding no Uyuni: {{ uyuni_client_key_accept.stdout | default('sem retorno') }}

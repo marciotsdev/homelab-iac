@@ -77,9 +77,8 @@
 
 # DNS interno do lab (Technitium) - zona "lab" com registro pra cada servico
 # ja existente (ver defaults/main.yml do papel). Pre-requisito do FQDN que o
-# Uyuni vai precisar; a frota so passa a USAR esse resolver depois de validar
-# a resolucao manualmente (dns_servers do resto das VMs continua no roteador
-# por enquanto - troca planejada como proximo passo, nao automatica aqui).
+# Uyuni precisa - a frota inteira do homelab-iac ja usa esse resolver como
+# DNS primario (corte concluido em 19 ago 2026, roteador como fallback).
 - name: DNS interno (Technitium)
   hosts: dns
   gather_facts: true
@@ -89,6 +88,30 @@
       caddy_sites:
         - address: "https://{{ hostvars['dns'].ansible_host }}"
           upstream: "127.0.0.1:{{ technitium_web_port }}"
+
+# Hardening + patch management + relatorio de issues centralizados pra frota
+# inteira, no lugar da tentativa via Ansible devsec.hardening (revertida em
+# 14 ago 2026, ver docs/armadilhas.md). Sem Caddy na frente: o mgradm ja
+# publica o servidor direto em 443 com certificado proprio (autoassinado,
+# CA gerada por ele mesmo) - navegador vai pedir excecao manual na primeira
+# visita, diferente do "tls internal" do Caddy usado no resto do lab.
+- name: Uyuni (hardening + patch management)
+  hosts: uyuni
+  gather_facts: true
+  roles:
+    - uyuni
+
+# Onboarding da frota como Salt minion do Uyuni (Salt Bundle/venv-salt-minion).
+# Roda depois do papel uyuni (precisa do servidor + canais + repo de
+# bootstrap prontos) - exclui o proprio uyuni (nao faz sentido virar cliente
+# de si mesmo) e o jenkins (aposentado, gated atras de enable_legacy_jenkins,
+# mesmo criterio de "fora das rotinas" usado pra ele em todo o resto do lab).
+- name: Onboarding da frota no Uyuni (Salt minion)
+  hosts: homelab:!uyuni:!jenkins
+  gather_facts: false
+  tags: [uyuni_client]
+  roles:
+    - uyuni_client
 
 # Jenkins foi aposentado em jul/2026 (CI migrado para o GitLab). A VM continua
 # preservada; o papel so roda sob demanda, para nao ressuscitar a esteira antiga.

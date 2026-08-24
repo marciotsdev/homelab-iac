@@ -3,42 +3,47 @@ ssh_public_key_path = "~/.ssh/homelab_ed25519.pub"
 
 vms = {
   awx = {
-    vm_id  = 2001
-    ip     = "192.168.15.50/24"
-    cores  = 4
-    memory = 16384
-    disk   = 60
+    vm_id       = 2001
+    ip          = "192.168.15.50/24"
+    cores       = 4
+    memory      = 16384
+    disk        = 60
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
   }
   jenkins = {
     # Aposentado (CI migrado para o GitLab) — VM preservada, sem tag e sem boot
-    vm_id  = 2002
-    ip     = "192.168.15.51/24"
-    cores  = 2
-    memory = 4096
-    disk   = 40
-    tags   = []
+    vm_id       = 2002
+    ip          = "192.168.15.51/24"
+    cores       = 2
+    memory      = 4096
+    disk        = 40
+    tags        = []
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
   }
   gitea = {
-    vm_id   = 2003
-    ip      = "192.168.15.52/24"
-    cores   = 2
-    memory  = 2048
-    disk    = 20
-    on_boot = true
+    vm_id       = 2003
+    ip          = "192.168.15.52/24"
+    cores       = 2
+    memory      = 2048
+    disk        = 20
+    on_boot     = true
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
   }
   containers = {
-    vm_id  = 2004
-    ip     = "192.168.15.53/24"
-    cores  = 2
-    memory = 4096
-    disk   = 40
+    vm_id       = 2004
+    ip          = "192.168.15.53/24"
+    cores       = 2
+    memory      = 4096
+    disk        = 40
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
   }
   client = {
-    vm_id  = 2005
-    ip     = "192.168.15.54/24"
-    cores  = 2
-    memory = 4096
-    disk   = 20
+    vm_id       = 2005
+    ip          = "192.168.15.54/24"
+    cores       = 2
+    memory      = 4096
+    disk        = 20
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
   }
   backstage = {
     vm_id   = 2006
@@ -50,7 +55,8 @@ vms = {
     # Liga junto com o cluster: e o portal de entrada pras outras ferramentas
     # do lab (ligado na UI do Proxmox em 05/08, alinhado aqui pra nao haver
     # drift no proximo apply).
-    on_boot = true
+    on_boot     = true
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
   }
   localstack = {
     # MiniStack (emulador AWS) + StackPort
@@ -59,7 +65,7 @@ vms = {
     cores       = 2
     memory      = 4096
     disk        = 21
-    dns_servers = ["192.168.15.1"]
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
     ssh_keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
     ]
@@ -93,7 +99,7 @@ vms = {
     memory      = 8192
     disk        = 21
     on_boot     = true
-    dns_servers = ["192.168.15.1"]
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
     ssh_keys = [
       # Faltava esta chave (unica diferenca deste bloco pras demais VMs) — sem
       # ela o Ansible nao consegue entrar; descoberto ao recriar a VM em 07 ago 2026.
@@ -114,7 +120,7 @@ vms = {
     memory      = 18432
     disk        = 60
     on_boot     = true
-    dns_servers = ["192.168.15.1"]
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
     ssh_keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
@@ -131,7 +137,7 @@ vms = {
     memory      = 8192
     disk        = 60
     on_boot     = true
-    dns_servers = ["192.168.15.1"]
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
     ssh_keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
@@ -149,7 +155,36 @@ vms = {
     memory      = 4096
     disk        = 20
     on_boot     = true
-    dns_servers = ["192.168.15.1"]
+    dns_servers = ["192.168.15.65", "192.168.15.1"]
+    ssh_keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJbotLXtaqwLd2a8vYRCOO3YbpMgIuMevYKhz9NoHJ4 root@pve",
+    ]
+  }
+  uyuni = {
+    # Uyuni — concentra hardening (baseline) + patch management + relatorio
+    # nativo de issues pra frota inteira, substituindo a tentativa via Ansible
+    # devsec.hardening (revertida em 14 ago 2026, ver docs/armadilhas.md).
+    # Base openSUSE Tumbleweed em vez do SL Micro 6.2 originalmente cogitado:
+    # SL Micro exige conta + codigos de registro no SUSE Customer Center (SCC)
+    # so pra baixar a imagem; Tumbleweed e a base community validada
+    # oficialmente pelo projeto Uyuni desde a 2025.10, sem essa friccao.
+    # Precisa de FQDN resolvivel (por isso o DNS interno - Technitium - veio
+    # primeiro) e de bastante disco pro mirror de pacotes (200GB minimo
+    # oficial) - por isso vai no datastore "DATA" (LVM comum, 2.7TB livres),
+    # nao no local-lvm (thin pool ja mais apertado no resto da frota).
+    vm_id = 2017
+    ip    = "192.168.15.66/24"
+    cores = 4
+    # 16GB (minimo oficial) alarmou 100% de uso logo depois do install, com
+    # os syncs de pacote ainda rodando - subido pro valor "recomendado pra
+    # producao" da propria documentacao do Uyuni (19 ago 2026).
+    memory         = 32768
+    disk           = 200
+    datastore_id   = "DATA"
+    template_vm_id = 10018
+    dns_servers    = ["192.168.15.65", "192.168.15.1"]
     ssh_keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBO3BiGOxRN29Jfas+UGS0hV+JGKZedAl+IMpzwrzLs8 homelab-terraform-ansible",
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogEzcV72H1vVmvC849JTMTFYguxVw5QKl4JX85fRj0 thundercat@windows-claude",
